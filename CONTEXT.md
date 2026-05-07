@@ -1,0 +1,48 @@
+# LLM Wiki CLI
+
+A clean, pure, idiomatic Python CLI for managing a semantic knowledge base of markdown documents with SHACL validation and SPARQL reasoning.
+
+## Language
+
+**Wiki**: An LLM-managed knowledge base of markdown files containing structured frontmatter. _Avoid_: Book, repository, database.
+
+**Document**: An individual Markdown page in the wiki containing a metadata block. _Avoid_: Page, post, wiki page.
+
+**Frontmatter**: A YAML or JSON metadata block at the top of a Document, mapping to a JSON-LD compliant representation. _Avoid_: Metadata, header.
+
+**Context**: The central configuration and namespace mapping (similar to JSON-LD `@context`) managing CLI settings, directories, and prefix bindings. _Avoid_: Config, parameters.
+
+**Namespaces**: The mapping of prefix keys to URI values used for RDF conversion and SPARQL queries. _Avoid_: Prefixes, prefixes list.
+
+**Inference**: The process of applying OWL-RL deductive reasoning to expand the RDF graph. _Avoid_: Reasoning, calculation.
+
+**Axiom**: Ontological rules and schema definitions loaded from Turtle files to guide the inference process. _Avoid_: Rule, schema rule.
+
+**Validation**: The process of checking the frontmatter of Documents against SHACL Shapes to ensure structure and value compliance. _Avoid_: Formatting check, manual review.
+
+**Shape**: A SHACL constraint definition loaded from Turtle files to validate the structure of Documents. _Avoid_: Rule, template.
+
+**Query**: A SPARQL query executed against the semantic RDF graph of the Wiki. _Avoid_: Search, database lookup.
+
+**Rendering**: The process of executing embedded SPARQL Queries within Documents and injecting the formatted results back into the files. _Avoid_: Exporting, updating.
+
+**CLI**: The command-line interface built with Click for managing the wiki.
+
+## Relationships
+
+- A **Wiki** is composed of multiple **Documents**
+- A **Document** contains exactly one **Frontmatter** block
+- The **CLI** manages, validates, and queries the **Wiki** using **Context** and **Namespaces**
+- **Inference** uses custom **Axioms** to expand the semantic RDF graph of the **Wiki**
+- **Validation** checks **Documents** against custom **Shapes** to ensure data integrity
+- **Query** executes custom SPARQL queries against the expanded RDF graph of the **Wiki**
+- **Rendering** runs embedded **Queries** inside **Documents** and updates their dynamic sections inline
+
+
+
+
+
+## Example dialogue
+
+> **Dev:** "Does a **Document** always have to contain a **Frontmatter** block?"
+> **Domain expert:** "Yes, a **Document** without **Frontmatter** is ignored by the **CLI** because it cannot be loaded into the RDF graph."
