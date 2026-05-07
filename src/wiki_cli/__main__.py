@@ -287,12 +287,14 @@ def query(context: Context, query_args: tuple[str, ...], output_format: str, out
 
 @main.command()
 @click.option("--no-inference", is_flag=True, help="Skip OWL-RL inference.")
+@click.option("-v", "--verbose", is_flag=True, help="Print summary of updated files.")
 @click.pass_obj
-def render(context: Context, no_inference: bool) -> None:
+def render(context: Context, no_inference: bool, verbose: bool) -> None:
     """Render inline SPARQL blocks in markdown files."""
     graph = load_graph(context, infer=not no_inference)
     count = render_markdown_files(context.wiki_dir, graph)
-    click.echo(f"Successfully updated {count} markdown files with rendered SPARQL outputs.")
+    if verbose:
+        click.echo(f"Successfully updated {count} markdown files with rendered SPARQL outputs.")
 
 
 
@@ -306,8 +308,9 @@ def frontmatter() -> None:
 @click.argument("file", required=False, type=click.Path(exists=True, path_type=Path))
 @click.option("--dry-run", is_flag=True, help="Print count of changes without writing them.")
 @click.option("--standardize/--no-standardize", default=True, help="Standardize property key casing to camelCase.")
+@click.option("-v", "--verbose", is_flag=True, help="Print summary of changes.")
 @click.pass_obj
-def normalize(context: Context, file: Optional[Path], dry_run: bool, standardize: bool) -> None:
+def normalize(context: Context, file: Optional[Path], dry_run: bool, standardize: bool, verbose: bool) -> None:
     """Normalize and format document frontmatter blocks."""
     if file:
         original = file.read_text(encoding="utf-8")
@@ -315,18 +318,21 @@ def normalize(context: Context, file: Optional[Path], dry_run: bool, standardize
         if normalized != original:
             if not dry_run:
                 file.write_text(normalized, encoding="utf-8")
-                click.echo(f"Normalized frontmatter in {file.name}")
+                if verbose:
+                    click.echo(f"Normalized frontmatter in {file.name}")
             else:
                 click.echo(f"[DRY-RUN] Would normalize frontmatter in {file.name}")
         else:
-            click.echo(f"Frontmatter in {file.name} is already normalized.")
+            if verbose:
+                click.echo(f"Frontmatter in {file.name} is already normalized.")
         sys.exit(0)
 
     results = normalize_all(context.wiki_dir, standardize_keys=standardize, dry_run=dry_run)
     if dry_run:
         click.echo(f"[DRY-RUN] Would fix {results['fixed']} files, skipped {results['skipped']}")
     else:
-        click.echo(f"Normalized frontmatter in {results['fixed']} files, skipped {results['skipped']}")
+        if verbose:
+            click.echo(f"Normalized frontmatter in {results['fixed']} files, skipped {results['skipped']}")
     sys.exit(0)
 
 

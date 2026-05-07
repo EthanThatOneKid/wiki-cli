@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-wiki-cli = "wiki_cli.__main__:main"
+wiki = "wiki_cli.__main__:main"
 
 [tool.setuptools]
 packages = ["wiki_cli"]
