@@ -55,6 +55,7 @@ ORDER BY ?name
 
 | Topic | Name |
 | --- | --- |
+| wiki:custom-schemas-and-shapes | Defining custom schemas, shapes, and axioms |
 | wiki:personal-knowledge-management | Personal knowledge management and semantic 2nd brains |
 | wiki:sparql-guide | SPARQL query guide |
 | wiki:wiki-schema | Wiki schema and active types |
