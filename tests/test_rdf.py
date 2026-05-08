@@ -1,15 +1,79 @@
 import unittest
 from pathlib import Path
-from rdflib import Graph, URIRef, RDF, Literal
+from tempfile import TemporaryDirectory
+from rdflib import Graph, URIRef, RDF, Literal, Namespace
+from rdflib.namespace import XSD
 
 from wiki_cli.context import WikiConfig, Context
-from wiki_cli.rdf import frontmatter_to_graph
+from wiki_cli.rdf import (
+    frontmatter_to_graph,
+    kebab_case,
+    resolve_predicate,
+    resolve_object,
+    build_name_to_id_map,
+    resolve_blank_nodes,
+    load_graph,
+    graph_stats,
+)
 
 
 class TestRDFFrontmatter(unittest.TestCase):
     def setUp(self) -> None:
         self.config = WikiConfig()
         self.context = self.config.context
+
+    def test_kebab_case(self) -> None:
+        """Test kebab-case conversion helper."""
+        self.assertEqual(kebab_case("John Smith! & Co."), "john-smith--co")
+        self.assertEqual(kebab_case(""), "")
+        self.assertEqual(kebab_case("some--double--dashes"), "some-double-dashes")
+
+    def test_resolve_predicate(self) -> None:
+        """Test resolve_predicate handles various prefixes and fallback mappings."""
+        # Custom namespace prefix
+        self.assertEqual(
+            resolve_predicate("foaf:name", self.context),
+            self.context.namespaces["foaf"]["name"]
+        )
+        # Wiki prefix
+        self.assertEqual(
+            resolve_predicate("wiki.gregory", self.context),
+            self.context.namespaces["wiki"]["gregory"]
+        )
+        # Unregistered prefix or default falls back to schema
+        self.assertEqual(
+            resolve_predicate("givenName", self.context),
+            self.context.namespaces["schema"]["givenName"]
+        )
+        self.assertEqual(
+            resolve_predicate("unregistered:prop", self.context),
+            self.context.namespaces["schema"]["unregistered:prop"]
+        )
+
+    def test_resolve_object_datatypes(self) -> None:
+        """Test resolve_object maps booleans, numbers, HTTP URIs, None, and strings correctly."""
+        graph = Graph()
+        subject = URIRef("wiki:gregory")
+        
+        # HTTP URI
+        resolve_object("url", "https://google.com", graph, subject, self.context)
+        url_pred = self.context.namespaces["schema"]["url"]
+        self.assertTrue((subject, url_pred, URIRef("https://google.com")) in graph)
+        
+        # Boolean
+        resolve_object("knows", True, graph, subject, self.context)
+        knows_pred = self.context.namespaces["schema"]["knows"]
+        self.assertTrue((subject, knows_pred, Literal(True, datatype=XSD.boolean)) in graph)
+        
+        # Numbers
+        resolve_object("age", 30, graph, subject, self.context)
+        age_pred = self.context.namespaces["schema"]["age"]
+        self.assertTrue((subject, age_pred, Literal(30)) in graph)
+        
+        # None (should add nothing)
+        resolve_object("nothing", None, graph, subject, self.context)
+        nothing_pred = self.context.namespaces["schema"]["nothing"]
+        self.assertEqual(len(list(graph.objects(subject, nothing_pred))), 0)
 
     def test_nested_dict_creates_blank_node(self) -> None:
         """Test that a nested dictionary without explicit @type creates a blank node."""
@@ -23,11 +87,8 @@ class TestRDFFrontmatter(unittest.TestCase):
             }
         }
         graph = frontmatter_to_graph(data, self.context)
-        
-        # Verify subject
         subject = URIRef("wiki:gregory")
 
-        
         # Verify name predicate
         name_pred = self.context.namespaces["schema"]["name"]
         self.assertTrue((subject, name_pred, Literal("Gregory")) in graph)
@@ -119,8 +180,78 @@ class TestRDFFrontmatter(unittest.TestCase):
         text_pred = self.context.namespaces["schema"]["text"]
         self.assertTrue((subject, text_pred, Literal(body_text)) in graph)
 
+    def test_frontmatter_to_graph_empty_and_id_generation(self) -> None:
+        """Test empty dictionary handling and fallback id generation logic."""
+        # Empty dict or missing type -> Empty graph
+        self.assertEqual(len(frontmatter_to_graph({}, self.config)), 0)
+        
+        # Missing type -> Empty graph
+        self.assertEqual(len(frontmatter_to_graph({"name": "Alice"}, self.config)), 0)
+        
+        # Missing @id, with file_id
+        g_file = frontmatter_to_graph({"@type": "WebPage"}, self.config, file_id="doc")
+        self.assertTrue((URIRef("https://book.etok.me/wiki/doc.md"), RDF.type, self.context.namespaces["schema"]["WebPage"]) in g_file)
+        
+        # Missing @id, type is Person, givenName & familyName
+        g_person = frontmatter_to_graph({"@type": "Person", "givenName": "Alice", "familyName": "Smith"}, self.config)
+        self.assertTrue((URIRef("https://book.etok.me/wiki/alice-smith.md"), RDF.type, self.context.namespaces["schema"]["Person"]) in g_person)
+
+        # Missing @id, type is not Person, name is present
+        g_page = frontmatter_to_graph({"@type": "WebPage", "name": "Some Page"}, self.config)
+        self.assertTrue((URIRef("https://book.etok.me/wiki/some-page.md"), RDF.type, self.context.namespaces["schema"]["WebPage"]) in g_page)
+
+
+class TestRDFLoadingAndResolution(unittest.TestCase):
+    def test_resolve_blank_nodes_and_load_graph(self) -> None:
+        """Test build_name_to_id_map, resolve_blank_nodes, and load_graph integration."""
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            
+            # Create a person file that has an explicit @id (using valid YAML syntax with quoted @ keys)
+            person1 = wiki_dir / "gregory.md"
+            person1_content = """---
+"@type": Person
+"@id": "wiki:gregory"
+name: Gregory Smith
+givenName: Gregory
+familyName: Smith
+---
+"""
+            person1.write_text(person1_content, encoding="utf-8")
+            
+            # Create another person file with a blank node relation to Gregory
+            person2 = wiki_dir / "bella.md"
+            person2_content = """---
+"@type": Person
+"@id": "wiki:bella"
+name: Bella
+spouse:
+  name: Gregory Smith
+---
+"""
+            person2.write_text(person2_content, encoding="utf-8")
+            
+            config = WikiConfig(wiki_dir=wiki_dir)
+            
+            # 1. Test build_name_to_id_map
+            name_map = build_name_to_id_map(wiki_dir, config.context)
+            self.assertEqual(name_map.get("gregory smith"), "wiki:gregory")
+            self.assertEqual(name_map.get("gregory"), "wiki:gregory")
+            
+            # 2. Test load_graph and blank node resolution
+            graph = load_graph(config, infer=False)
+            
+            # Spouse blank node should resolve to URIRef("wiki:gregory")
+            subject = URIRef("wiki:bella")
+            spouse_pred = config.namespaces["schema"]["spouse"]
+            spouse_objs = list(graph.objects(subject, spouse_pred))
+            self.assertEqual(len(spouse_objs), 1)
+            self.assertEqual(spouse_objs[0], URIRef("wiki:gregory"))
+            
+            # Test graph stats
+            stats = graph_stats(graph)
+            self.assertGreater(stats["triples"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
-
-

@@ -3,7 +3,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from wiki_cli.context import WikiConfig
-from wiki_cli.checking import audit_filenames, audit_internal_links
+from wiki_cli.checking import (
+    audit_filenames,
+    audit_internal_links,
+    load_shapes,
+    check_shacl_file,
+    check_shacl_all,
+    run_checks,
+)
 
 
 class TestChecking(unittest.TestCase):
@@ -49,6 +56,113 @@ And a valid Markdown link [Target](target-page.md) and a broken Markdown link [B
             self.assertEqual(len(warnings), 2)
             self.assertTrue(any("Broken WikiLink [[non-existent-page]]" in w for w in warnings))
             self.assertTrue(any("Broken Markdown link [missing.md]" in w for w in warnings))
+
+    def test_load_shapes_edge_cases(self) -> None:
+        """Test load_shapes handles missing folders and syntax errors gracefully."""
+        # Non-existent directory
+        with TemporaryDirectory() as tmpdir:
+            config = WikiConfig(shapes_dir=Path(tmpdir) / "non-existent")
+            shapes = load_shapes(config)
+            self.assertEqual(len(shapes), 0)
+            
+            # Invalid Turtle file
+            shapes_dir = Path(tmpdir) / "shapes"
+            shapes_dir.mkdir()
+            invalid_ttl = shapes_dir / "invalid.ttl"
+            invalid_ttl.write_text("invalid turtle text", encoding="utf-8")
+            
+            config_with_invalid = WikiConfig(shapes_dir=shapes_dir)
+            shapes_invalid = load_shapes(config_with_invalid)
+            self.assertEqual(len(shapes_invalid), 0)
+
+    def test_check_shacl_file_and_all(self) -> None:
+        """Test check_shacl_file and check_shacl_all for conformance."""
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir) / "wiki"
+            shapes_dir = Path(tmpdir) / "shapes"
+            wiki_dir.mkdir()
+            shapes_dir.mkdir()
+            
+            # Create a basic shape file
+            shape_content = """
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix schema: <https://schema.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+schema:PersonShape
+    a sh:NodeShape ;
+    sh:targetClass schema:Person ;
+    sh:property [
+        sh:path schema:name ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+    ] .
+"""
+            (shapes_dir / "person.ttl").write_text(shape_content, encoding="utf-8")
+            config = WikiConfig(wiki_dir=wiki_dir, shapes_dir=shapes_dir)
+            
+            # 1. No frontmatter -> check_shacl_file returns None
+            no_fm_file = wiki_dir / "no-fm.md"
+            no_fm_file.write_text("just text", encoding="utf-8")
+            self.assertIsNone(check_shacl_file(no_fm_file, config))
+            
+            # 2. File with valid Person (name present)
+            valid_person = wiki_dir / "valid-person.md"
+            valid_person.write_text("""---
+type: Person
+name: Gregory
+---
+""", encoding="utf-8")
+            res_valid = check_shacl_file(valid_person, config)
+            self.assertIsNotNone(res_valid)
+            self.assertTrue(res_valid[0])  # conforms
+            
+            # 3. File with invalid Person (missing name)
+            invalid_person = wiki_dir / "invalid-person.md"
+            invalid_person.write_text("""---
+type: Person
+---
+""", encoding="utf-8")
+            res_invalid = check_shacl_file(invalid_person, config)
+            self.assertIsNotNone(res_invalid)
+            self.assertFalse(res_invalid[0])  # does not conform
+            
+            # 4. Test check_shacl_all integrates both
+            conforms_all, results_all = check_shacl_all(config)
+            self.assertFalse(conforms_all)
+
+    def test_run_checks_severity_and_promotion(self) -> None:
+        """Test run_checks respects configuration for warning levels and promotions."""
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            
+            # Create an invalid filename violating lowercase kebab-case
+            invalid_file = wiki_dir / "Invalid_Name.md"
+            invalid_file.write_text("""---
+type: schema:WebPage
+---
+""", encoding="utf-8")
+            
+            # Scenario A: check.filenameStyle is "warning"
+            config_warning = WikiConfig(wiki_dir=wiki_dir, check={"filenameStyle": "warning"})
+            res_warning = run_checks(config_warning)
+            self.assertTrue(res_warning["conforms"])
+            self.assertEqual(len(res_warning["warnings"]), 1)
+            self.assertEqual(len(res_warning["errors"]), 0)
+            
+            # Scenario B: check.filenameStyle is "error"
+            config_error = WikiConfig(wiki_dir=wiki_dir, check={"filenameStyle": "error"})
+            res_error = run_checks(config_error)
+            self.assertFalse(res_error["conforms"])
+            self.assertEqual(len(res_error["warnings"]), 0)
+            self.assertEqual(len(res_error["errors"]), 1)
+            
+            # Scenario C: check.filenameStyle is "off"
+            config_off = WikiConfig(wiki_dir=wiki_dir, check={"filenameStyle": "off"})
+            res_off = run_checks(config_off)
+            self.assertTrue(res_off["conforms"])
+            self.assertEqual(len(res_off["warnings"]), 0)
+            self.assertEqual(len(res_off["errors"]), 0)
 
 
 if __name__ == "__main__":

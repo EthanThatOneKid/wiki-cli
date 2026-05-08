@@ -57,7 +57,7 @@ def check_shacl_file(file_path: Path, context: WikiConfig, verbose: bool = False
 
     conforms, _, results_text = pyshacl.validate(
         data_graph,
-        shapes_graph,
+        shacl_graph=shapes_graph,
         inference="rdfs",
     )
 
@@ -88,9 +88,9 @@ def check_shacl_all(context: WikiConfig, verbose: bool = False) -> tuple[bool, s
 
     conforms, _, results_text = pyshacl.validate(
         data_graph,
-        shapes_graph,
+        shacl_graph=shapes_graph,
         inference="rdfs",
-        abort_on_first_error=False,
+        abort_on_first=False,
     )
 
     if errors:
