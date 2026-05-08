@@ -1,4 +1,4 @@
-"""SHACL validation logic using pyshacl against loaded constraint shapes and custom style/hygiene audits."""
+"""SHACL checking logic using pyshacl against loaded constraint shapes and custom style/hygiene audits."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import unquote
 from rdflib import Graph
 import pyshacl
 
@@ -20,6 +21,10 @@ FILENAME_REGEX = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 # WikiLink pattern: [[slug]] or [[slug|display]]
 WIKILINK_REGEX = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
+
+# Standard Markdown link pattern: [display](target)
+# Excludes external URLs (http/https, mailto) and internal anchor-only links (starting with #)
+MARKDOWN_LINK_REGEX = re.compile(r"\[[^\]]+\]\((?!(?:https?://|mailto:|#))([^)]+)\)")
 
 
 def load_shapes(context: WikiConfig) -> Graph:
@@ -38,7 +43,7 @@ def load_shapes(context: WikiConfig) -> Graph:
     return shapes_graph
 
 
-def validate_file(file_path: Path, context: WikiConfig, verbose: bool = False) -> Optional[tuple[bool, str]]:
+def check_shacl_file(file_path: Path, context: WikiConfig, verbose: bool = False) -> Optional[tuple[bool, str]]:
     """Validate a single markdown file's frontmatter against loaded shapes.
 
     Returns None if no frontmatter is found, otherwise returns (conforms, results_text).
@@ -59,7 +64,7 @@ def validate_file(file_path: Path, context: WikiConfig, verbose: bool = False) -
     return conforms, results_text
 
 
-def validate_all(context: WikiConfig, verbose: bool = False) -> tuple[bool, str]:
+def check_shacl_all(context: WikiConfig, verbose: bool = False) -> tuple[bool, str]:
     """Validate all wiki documents as a single unified Graph against loaded shapes."""
     shapes_graph = load_shapes(context)
     data_graph = Graph()
@@ -96,32 +101,6 @@ def validate_all(context: WikiConfig, verbose: bool = False) -> tuple[bool, str]
     return conforms, results_text
 
 
-def validate_summary(context: WikiConfig) -> dict[str, Any]:
-    """Perform a per-file SHACL validation and return a summary of conforming/failing/error files."""
-    shapes_graph = load_shapes(context)
-    results: dict[str, Any] = {"conforms": [], "fails": [], "errors": []}
-
-    if context.wiki_dir.exists():
-        for md_file in sorted(context.wiki_dir.glob("*.md")):
-            try:
-                data = frontmatter_from_path(md_file)
-                if not data:
-                    results["errors"].append({"file": md_file.name, "reason": "no frontmatter"})
-                    continue
-
-                data_graph = frontmatter_to_graph(data, context, file_id=md_file.stem)
-                conforms, _, _ = pyshacl.validate(data_graph, shapes_graph, inference="rdfs")
-
-                if conforms:
-                    results["conforms"].append(md_file.name)
-                else:
-                    results["fails"].append(md_file.name)
-            except Exception as e:
-                results["errors"].append({"file": md_file.name, "reason": str(e)})
-
-    return results
-
-
 def audit_filenames(config: WikiConfig) -> list[str]:
     """Audit filenames in the wiki directory to ensure they are lowercase kebab-case.
 
@@ -141,7 +120,7 @@ def audit_filenames(config: WikiConfig) -> list[str]:
 
 
 def audit_internal_links(config: WikiConfig) -> list[str]:
-    """Audit internal wikilinks in markdown files to ensure they point to existing documents.
+    """Audit internal wikilinks and standard Markdown links in markdown files to ensure they point to existing documents.
 
     Returns a list of warnings.
     """
@@ -154,12 +133,24 @@ def audit_internal_links(config: WikiConfig) -> list[str]:
     for md_file in sorted(config.wiki_dir.glob("*.md")):
         try:
             content = md_file.read_text(encoding="utf-8")
-            links = WIKILINK_REGEX.findall(content)
-            for link in links:
+            
+            # 1. Audit WikiLinks
+            wikilinks = WIKILINK_REGEX.findall(content)
+            for link in wikilinks:
                 slug = link.strip().lower().replace(" ", "-")
                 if slug not in existing_files:
                     warnings.append(
                         f"In {md_file.name}: Broken WikiLink [[{link}]] points to non-existent document."
+                    )
+            
+            # 2. Audit standard Markdown links
+            md_links = MARKDOWN_LINK_REGEX.findall(content)
+            for target in md_links:
+                decoded_target = unquote(target.split("#")[0].split("?")[0])
+                slug = Path(decoded_target).stem.strip().lower().replace(" ", "-")
+                if slug and slug not in existing_files:
+                    warnings.append(
+                        f"In {md_file.name}: Broken Markdown link [{target}] points to non-existent document."
                     )
         except Exception as e:
             warnings.append(f"Failed to read {md_file.name} for link audit: {e}")
@@ -179,7 +170,7 @@ def run_checks(config: WikiConfig) -> dict[str, Any]:
     }
 
     try:
-        shacl_conforms, shacl_text = validate_all(config)
+        shacl_conforms, shacl_text = check_shacl_all(config)
         if not shacl_conforms:
             results["conforms"] = False
             results["errors"].append(f"SHACL Validation Violation:\n{shacl_text}")

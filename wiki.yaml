@@ -1,0 +1,7 @@
+# wiki.yaml
+wikiDir: wiki
+contentPredicate: schema:text
+
+context:
+  schema: https://schema.org/
+  wiki: https://book.etok.me/wiki/

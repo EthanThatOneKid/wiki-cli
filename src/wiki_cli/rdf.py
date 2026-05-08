@@ -51,7 +51,11 @@ def resolve_object(key: str, value: Any, graph: Graph, subject: URIRef, context:
                 if not k.startswith("@"):
                     resolve_object(k, v, graph, blank, context)
         else:
-            graph.add((subject, pred, Literal(str(value))))
+            blank = URIRef(f"_:blank-{kebab_case(key)}-{id(value)}")
+            graph.add((subject, pred, blank))
+            for k, v in value.items():
+                if not k.startswith("@"):
+                    resolve_object(k, v, graph, blank, context)
     elif isinstance(value, str) and value.startswith("http"):
         graph.add((subject, pred, URIRef(value)))
     elif isinstance(value, bool):
@@ -62,21 +66,22 @@ def resolve_object(key: str, value: Any, graph: Graph, subject: URIRef, context:
         graph.add((subject, pred, Literal(str(value))))
 
 
-def frontmatter_to_graph(data: dict[str, Any], context: Context, file_id: Optional[str] = None) -> Graph:
+def frontmatter_to_graph(data: dict[str, Any], context: Context, file_id: Optional[str] = None, body: Optional[str] = None) -> Graph:
     """Convert parsed frontmatter dictionary to an RDF graph."""
     graph = Graph()
     context.bind_namespaces(graph)
 
-    if not data or "@type" not in data:
+    rdf_type = data.get("@type") or data.get("type")
+    if not data or not rdf_type:
         return graph
 
-    doc_id = data.get("@id")
+    doc_id = data.get("@id") or data.get("id")
     if not doc_id:
         if file_id:
             doc_id = f"{context.wiki_base}{file_id}.md"
         else:
             name = data.get("name", data.get("givenName", ""))
-            if data.get("@type") == "Person":
+            if rdf_type == "Person":
                 given = data.get("givenName", "")
                 family = data.get("familyName", "")
                 if given and family:
@@ -88,7 +93,6 @@ def frontmatter_to_graph(data: dict[str, Any], context: Context, file_id: Option
 
     subject = URIRef(doc_id)
 
-    rdf_type = data.get("@type")
     if isinstance(rdf_type, list):
         for t in rdf_type:
             graph.add((subject, RDF.type, URIRef(f"{context.namespaces['schema']}{t}")))
@@ -96,13 +100,16 @@ def frontmatter_to_graph(data: dict[str, Any], context: Context, file_id: Option
         graph.add((subject, RDF.type, URIRef(f"{context.namespaces['schema']}{rdf_type}")))
 
     for key, value in data.items():
-        if key.startswith("@"):
+        if key.startswith("@") or key in ("id", "type"):
             continue
         if isinstance(value, list):
             for item in value:
                 resolve_object(key, item, graph, subject, context)
         elif value:
             resolve_object(key, value, graph, subject, context)
+
+    if body and hasattr(context, "content_predicate") and context.content_predicate:
+        resolve_object(context.content_predicate, body, graph, subject, context)
 
     return graph
 
@@ -175,14 +182,32 @@ def load_graph(context: Context, infer: bool = True) -> Graph:
         for md_file in context.wiki_dir.glob("*.md"):
             data = frontmatter_from_path(md_file)
             if data:
-                graph += frontmatter_to_graph(data, context, file_id=md_file.stem)
+                body = None
+                if hasattr(context, "content_predicate") and context.content_predicate:
+                    try:
+                        content = md_file.read_text(encoding="utf-8")
+                        parts = content.split("---", 2)
+                        if len(parts) > 2:
+                            body = parts[2].strip()
+                    except Exception:
+                        pass
+                graph += frontmatter_to_graph(data, context, file_id=md_file.stem, body=body)
 
     # Load raw documents if configured and present
     if context.raw_dir.exists():
         for md_file in context.raw_dir.glob("*.md"):
             data = frontmatter_from_path(md_file)
             if data:
-                graph += frontmatter_to_graph(data, context, file_id=md_file.stem)
+                body = None
+                if hasattr(context, "content_predicate") and context.content_predicate:
+                    try:
+                        content = md_file.read_text(encoding="utf-8")
+                        parts = content.split("---", 2)
+                        if len(parts) > 2:
+                            body = parts[2].strip()
+                    except Exception:
+                        pass
+                graph += frontmatter_to_graph(data, context, file_id=md_file.stem, body=body)
 
     resolve_blank_nodes(graph, context.wiki_dir, context)
 

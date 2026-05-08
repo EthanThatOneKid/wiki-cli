@@ -25,35 +25,35 @@ pip install -e .
 
 ## Subcommand guide
 
+### `create`
+Scaffold a new markdown **Document** in your wiki directory. It automatically normalizes the input into a lowercase kebab-case filename and inserts a pre-populated valid **Frontmatter** template containing standard schema mappings.
+
+```bash
+# Scaffold a new document
+wiki create "My New Page"
+
+# Scaffold a new document with verbose output
+wiki create "My New Page" -v
+```
+
 ### `check`
 Perform unified validations of your wiki, including strict SHACL schema validations and soft style/hygiene audits (kebab-case filenames, broken internal wikilinks). Under the "silence is golden" philosophy, `check` exits silently with code 0 on success.
 
 ```bash
-# Run unified checks silently (default)
+# Run unified checks on the entire wiki silently (default)
 wiki check
+
+# Check a single file specifically
+wiki check wiki/gregory.md
+
+# Run checks and automatically normalize/standardize frontmatter block casing and formatting
+wiki check --fix
 
 # Run with verbose output to show style/guideline warnings
 wiki check -v
 
 # Run in strict mode (warnings become errors and fail with non-zero exit code)
 wiki check --strict
-```
-
-### `validate`
-Validate the entire wiki or a single file against SHACL shapes loaded from `shapes/`.
-
-```bash
-# Validate all documents in the wiki
-wiki validate
-
-# Validate a single document file
-wiki validate wiki/gregory.md
-
-# Output per-file summary (conforming, fails, errors)
-wiki validate --summary
-
-# Output formatted as JSON
-wiki validate --summary --format json
 ```
 
 ### `query`
@@ -98,22 +98,20 @@ SELECT ?name ?email WHERE {
 <!-- sparql:end -->
 ````
 
-### `frontmatter`
-Utilities to normalize or convert metadata blocks. Under the "silence is golden" Unix philosophy, `normalize` exits silently with code 0 upon success.
+### `export`
+Compile and export parsed **Frontmatter** blocks of documents into a single canonical JSON-LD representation.
 
 ```bash
-# Normalize and standardize property casings silently (default)
-wiki frontmatter normalize
+# Export parsed frontmatter of the entire wiki as JSON-LD
+wiki export
 
-# Normalize and print a summary of changes
-wiki frontmatter normalize -v
+# Export parsed frontmatter of a single document
+wiki export wiki/gregory.md
 
-# Dry-run normalization to preview changes (always prints)
-wiki frontmatter normalize --dry-run
-
-# Convert frontmatter blocks to canonical JSON-LD array
-wiki frontmatter jsonld -o wiki.jsonld
+# Write exported JSON-LD to a file
+wiki export -o wiki.jsonld
 ```
+
 
 ### Printing and piping
 Following the Unix philosophy of pipes and filters, `wiki` works seamlessly with native system utilities. Outputs from query execution or document inspection can be easily formatted and spooled directly to your printer.
@@ -140,6 +138,42 @@ Following the Unix philosophy of pipes and filters, `wiki` works seamlessly with
   wiki query "SELECT ?s ?p WHERE { ?s ?p ?o }" | Out-Printer
   ```
 
+### Declarative modeling & full-text SPARQL
+
+The Wiki CLI natively turns your folder of Markdown files into an active logical ontology and validation graph.
+
+#### 1. Defining OWL Classes and SHACL Shapes recursively in Frontmatter
+Because our frontmatter parser natively supports nested dictionary conversion to RDF blank nodes, you can define complete validation shapes and ontological classes inside any document's frontmatter:
+
+```yaml
+# wiki/dog-shape.md
+---
+id: wiki:DogShape
+type: sh:NodeShape
+sh:targetClass: wiki:Dog
+sh:property:
+  sh:path: schema:name
+  sh:datatype: xsd:string
+  sh:minCount: 1
+---
+
+# Dog Shape
+Requires that all `wiki:Dog` documents must declare a name.
+```
+
+#### 2. Opt-in full-text SPARQL over Markdown Content
+By enabling `contentPredicate` in your `wiki.yaml`, the unstructured markdown body (everything after the frontmatter) is automatically loaded as a literal under your configured predicate (e.g. `schema:text`). This allows you to perform hybrid logical and full-text searches inside a single SPARQL query:
+
+```sparql
+PREFIX schema: <https://schema.org/>
+
+SELECT ?doc ?content WHERE {
+  ?doc a wiki:Dog ;
+       schema:text ?content .
+  FILTER(CONTAINS(LCASE(?content), "swimming"))
+}
+```
+
 ## Workspace configuration (`WikiConfig`)
 
 The CLI automatically detects and loads configurations from `wiki.yaml`, `wiki.yml`, or `wiki.json` in your current working directory. The configuration file holds CLI parameters and custom checking severities, with an embedded `@context` or `context` block defining prefix mappings:
@@ -148,6 +182,7 @@ The CLI automatically detects and loads configurations from `wiki.yaml`, `wiki.y
 # wiki.yaml
 wikiDir: wiki
 shapesDir: shapes
+contentPredicate: schema:text # Opt-in full-text markdown body auto-injection
 
 check:
   filenameStyle: warning     # "error" | "warning" | "off"
@@ -164,4 +199,8 @@ To understand the domain terminology (such as **Wiki**, **Document**, **Context*
 *   [CONTEXT.md](CONTEXT.md) — Glossary and Domain Model mapping.
 *   [0001-context-centric-configuration.md](docs/adr/0001-context-centric-configuration.md) — Architectural Decision Record (ADR) on context naming.
 *   [0002-userland-printing.md](docs/adr/0002-userland-printing.md) — Architectural Decision Record (ADR) on adopting userland printing filters.
+*   [0003-silence-is-golden.md](docs/adr/0003-silence-is-golden.md) — Architectural Decision Record (ADR) on silent default behaviors.
+*   [0004-unified-check-and-wikiconfig.md](docs/adr/0004-unified-check-and-wikiconfig.md) — Architectural Decision Record (ADR) on unified check command and WikiConfig.
+*   [0005-streamlined-cli-architecture.md](docs/adr/0005-streamlined-cli-architecture.md) — Architectural Decision Record (ADR) on streamlined CLI architecture.
+
 

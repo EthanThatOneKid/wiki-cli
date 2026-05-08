@@ -62,6 +62,7 @@ class WikiConfig:
         wiki_base: str = "https://book.etok.me/wiki/",
         check: dict[str, str] | None = None,
         context: Context | None = None,
+        content_predicate: str | None = None,
     ) -> None:
         self.wiki_dir = Path(wiki_dir)
         self.shapes_dir = Path(shapes_dir)
@@ -73,6 +74,7 @@ class WikiConfig:
             "internalLinks": "warning",
         }
         self.context = context if context is not None else Context()
+        self.content_predicate = content_predicate
 
     @property
     def namespaces(self) -> dict[str, Any]:
@@ -116,6 +118,7 @@ class WikiConfig:
                             wiki_base=data.get("wiki_base") or data.get("wikiBase") or "https://book.etok.me/wiki/",
                             check=data.get("check"),
                             context=context_obj,
+                            content_predicate=data.get("content_predicate") or data.get("contentPredicate"),
                         )
                 except Exception as e:
                     logger.warning("Failed to load config file %s: %s", filename, e)

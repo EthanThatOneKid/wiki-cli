@@ -28,6 +28,10 @@ A clean, pure, idiomatic Python CLI for managing a semantic knowledge base of ma
 
 **Rendering**: The process of executing embedded SPARQL Queries within Documents and injecting the formatted results back into the files. _Avoid_: Exporting, updating.
 
+**Checking**: The process of running unified validations on the Wiki, combining strict SHACL Validation and style/hygiene audits with optional automatic fixing. _Avoid_: Linting, testing.
+
+**Exporting**: The process of compiling and exporting the Frontmatter of all Documents into a single canonical JSON-LD representation. _Avoid_: Saving, dumping.
+
 **CLI**: The command-line interface built with Click for managing the wiki.
 
 ## Relationships
@@ -37,8 +41,11 @@ A clean, pure, idiomatic Python CLI for managing a semantic knowledge base of ma
 - The **CLI** manages, validates, and queries the **Wiki** using the **WikiConfig** which contains the **Context** and **Namespaces**
 - **Inference** uses custom **Axioms** to expand the semantic RDF graph of the **Wiki**
 - **Validation** checks **Documents** against custom **Shapes** to ensure data integrity
+- **Checking** runs unified health checks (including **Validation**) on **Documents** and optionally automatically repairs **Frontmatter** formatting
 - **Query** executes custom SPARQL queries against the expanded RDF graph of the **Wiki**
 - **Rendering** runs embedded **Queries** inside **Documents** and updates their dynamic sections inline
+- **Exporting** packages the **Frontmatter** of the **Wiki** into a unified JSON-LD graph
+
 
 
 
