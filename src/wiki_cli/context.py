@@ -18,6 +18,7 @@ WIKI = Namespace("https://book.etok.me/wiki/")
 FOAF = Namespace("http://xmlns.com/foaf/0.1/")
 DC = Namespace("http://purl.org/dc/elements/1.1/")
 DCTERMS = Namespace("http://purl.org/dc/terms/")
+SH = Namespace("http://www.w3.org/ns/shacl#")
 
 DEFAULT_NAMESPACES = {
     "schema": SCHEMA,
@@ -29,6 +30,7 @@ DEFAULT_NAMESPACES = {
     "owl": OWL,
     "dc": DC,
     "dcterms": DCTERMS,
+    "sh": SH,
 }
 
 

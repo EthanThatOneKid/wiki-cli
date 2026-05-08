@@ -164,6 +164,55 @@ type: schema:WebPage
             self.assertEqual(len(res_off["warnings"]), 0)
             self.assertEqual(len(res_off["errors"]), 0)
 
+    def test_frontmatter_defined_shapes(self) -> None:
+        """Test that SHACL shapes defined in markdown frontmatter are loaded and enforced."""
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir) / "wiki"
+            shapes_dir = Path(tmpdir) / "shapes"
+            wiki_dir.mkdir()
+            shapes_dir.mkdir()
+
+            config = WikiConfig(wiki_dir=wiki_dir, shapes_dir=shapes_dir)
+
+            # Create a shape inside markdown frontmatter
+            shape_file = wiki_dir / "project-shape.md"
+            shape_file.write_text("""---
+id: wiki:ProjectShape
+type: sh:NodeShape
+sh:targetClass: schema:Project
+sh:property:
+  - sh:path: schema:name
+    sh:minCount: 1
+    sh:datatype: xsd:string
+---
+# Project Shape
+""", encoding="utf-8")
+
+            # Create an invalid project (missing name)
+            invalid_project = wiki_dir / "invalid-project.md"
+            invalid_project.write_text("""---
+type: Project
+---
+""", encoding="utf-8")
+
+            # Create a valid project
+            valid_project = wiki_dir / "valid-project.md"
+            valid_project.write_text("""---
+type: Project
+name: Wiki CLI
+---
+""", encoding="utf-8")
+
+            # Validate the invalid project
+            res_invalid = check_shacl_file(invalid_project, config)
+            self.assertIsNotNone(res_invalid)
+            self.assertFalse(res_invalid[0])  # Should NOT conform because of missing name
+
+            # Validate the valid project
+            res_valid = check_shacl_file(valid_project, config)
+            self.assertIsNotNone(res_valid)
+            self.assertTrue(res_valid[0])  # Should conform
+
 
 if __name__ == "__main__":
     unittest.main()

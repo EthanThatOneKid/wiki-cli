@@ -28,7 +28,7 @@ MARKDOWN_LINK_REGEX = re.compile(r"\[[^\]]+\]\((?!(?:https?://|mailto:|#))([^)]+
 
 
 def load_shapes(context: WikiConfig) -> Graph:
-    """Load all SHACL shapes (.ttl files) from shapes directory into a Graph."""
+    """Load all SHACL shapes (.ttl files) and frontmatter-defined shapes into a Graph."""
     shapes_graph = Graph()
     shapes_graph.bind("sh", "http://www.w3.org/ns/shacl#")
     shapes_graph.bind("schema", "https://schema.org/")
@@ -39,6 +39,27 @@ def load_shapes(context: WikiConfig) -> Graph:
                 shapes_graph.parse(shape_file, format="turtle")
             except Exception as e:
                 logger.warning("Failed to parse shape file %s: %s", shape_file.name, e)
+
+    if context.wiki_dir.exists():
+        for md_file in sorted(context.wiki_dir.glob("*.md")):
+            try:
+                data = frontmatter_from_path(md_file)
+                if data:
+                    rdf_type = data.get("@type") or data.get("type")
+                    is_shape = False
+                    if isinstance(rdf_type, str):
+                        if any(term in rdf_type for term in ("sh:NodeShape", "sh:PropertyShape", "NodeShape", "PropertyShape")):
+                            is_shape = True
+                    elif isinstance(rdf_type, list):
+                        if any(isinstance(t, str) and any(term in t for term in ("sh:NodeShape", "sh:PropertyShape", "NodeShape", "PropertyShape")) for t in rdf_type):
+                            is_shape = True
+                    elif any(isinstance(k, str) and (k.startswith("sh:") or k.startswith("shacl:")) for k in data):
+                        is_shape = True
+
+                    if is_shape:
+                        shapes_graph += frontmatter_to_graph(data, context, file_id=md_file.stem)
+            except Exception as e:
+                logger.warning("Failed to load frontmatter shape from %s: %s", md_file.name, e)
 
     return shapes_graph
 

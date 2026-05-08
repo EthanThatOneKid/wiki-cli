@@ -31,6 +31,17 @@ def resolve_predicate(key: str, context: Context) -> URIRef:
     return context.namespaces["schema"][key]
 
 
+def resolve_type(t: Any, context: Context) -> URIRef:
+    """Map a frontmatter type to an RDF type URI using managed namespaces."""
+    if isinstance(t, str):
+        if ":" in t:
+            prefix, name = t.split(":", 1)
+            if prefix in context.namespaces:
+                return context.namespaces[prefix][name]
+        return context.namespaces["schema"][t]
+    return URIRef(str(t))
+
+
 def resolve_object(key: str, value: Any, graph: Graph, subject: URIRef, context: Context) -> None:
     """Add a predicate-object pair to the graph, recursively handling nested structures."""
     pred = resolve_predicate(key, context)
@@ -56,8 +67,17 @@ def resolve_object(key: str, value: Any, graph: Graph, subject: URIRef, context:
             for k, v in value.items():
                 if not k.startswith("@"):
                     resolve_object(k, v, graph, blank, context)
-    elif isinstance(value, str) and value.startswith("http"):
-        graph.add((subject, pred, URIRef(value)))
+    elif isinstance(value, str):
+        if value.startswith("http"):
+            graph.add((subject, pred, URIRef(value)))
+        elif ":" in value and " " not in value and "\n" not in value:
+            prefix, name = value.split(":", 1)
+            if prefix in context.namespaces:
+                graph.add((subject, pred, URIRef(context.namespaces[prefix][name])))
+            else:
+                graph.add((subject, pred, Literal(value)))
+        else:
+            graph.add((subject, pred, Literal(value)))
     elif isinstance(value, bool):
         graph.add((subject, pred, Literal(value, datatype=XSD.boolean)))
     elif isinstance(value, (int, float)):
@@ -95,9 +115,9 @@ def frontmatter_to_graph(data: dict[str, Any], context: Context, file_id: Option
 
     if isinstance(rdf_type, list):
         for t in rdf_type:
-            graph.add((subject, RDF.type, URIRef(f"{context.namespaces['schema']}{t}")))
+            graph.add((subject, RDF.type, resolve_type(t, context)))
     elif rdf_type:
-        graph.add((subject, RDF.type, URIRef(f"{context.namespaces['schema']}{rdf_type}")))
+        graph.add((subject, RDF.type, resolve_type(rdf_type, context)))
 
     for key, value in data.items():
         if key.startswith("@") or key in ("id", "type"):
