@@ -29,6 +29,8 @@ ORDER BY ?type
 | Document | Type |
 | --- | --- |
 | wiki:wiki-cli | https://schema.org/SoftwareApplication |
+| wiki:personal-knowledge-management | https://schema.org/TechArticle |
+| wiki:sparql-guide | https://schema.org/TechArticle |
 | wiki:wiki-schema | https://schema.org/TechArticle |
 | wiki:wiki-workflows | https://schema.org/TechArticle |
 | wiki:bella | https://schema.org/schema:WebPage |
