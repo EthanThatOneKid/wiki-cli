@@ -12,7 +12,7 @@ import pyshacl
 
 from .context import WikiConfig, Context
 from .frontmatter import frontmatter_from_path
-from .rdf import frontmatter_to_graph
+from .rdf import frontmatter_to_graph, load_graph
 
 logger = logging.getLogger(__name__)
 
@@ -27,19 +27,42 @@ WIKILINK_REGEX = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 MARKDOWN_LINK_REGEX = re.compile(r"\[[^\]]+\]\((?!(?:https?://|mailto:|#))([^)]+)\)")
 
 
-def load_shapes(context: WikiConfig) -> Graph:
-    """Load all SHACL shapes (.ttl files) from shapes directory into a Graph."""
-    shapes_graph = Graph()
+def load_shapes(data_graph: Graph) -> Graph:
+    """Extract all SHACL relevant triples from a central graph via SPARQL CONSTRUCT."""
+    query = """
+    PREFIX sh: <http://www.w3.org/ns/shacl#>
+    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    
+    CONSTRUCT {
+        ?s ?p ?o .
+    }
+    WHERE {
+        {
+            # Triples where predicate is in the SHACL namespace
+            ?s ?p ?o .
+            FILTER (STRSTARTS(STR(?p), "http://www.w3.org/ns/shacl#"))
+        }
+        UNION
+        {
+            # Explicitly typed Shapes and their direct properties
+            ?s rdf:type ?type .
+            FILTER (?type IN (sh:NodeShape, sh:PropertyShape))
+            ?s ?p ?o .
+        }
+        UNION
+        {
+            # Nested anonymous/blank node configuration blocks for SHACL
+            ?x ?shaclProp ?s .
+            FILTER (STRSTARTS(STR(?shaclProp), "http://www.w3.org/ns/shacl#"))
+            ?s ?p ?o .
+        }
+    }
+    """
+    shapes_graph = data_graph.query(query).graph
+    if shapes_graph is None:
+        shapes_graph = Graph()
     shapes_graph.bind("sh", "http://www.w3.org/ns/shacl#")
-    shapes_graph.bind("schema", "https://schema.org/")
-
-    if context.shapes_dir.exists():
-        for shape_file in sorted(context.shapes_dir.glob("*.ttl")):
-            try:
-                shapes_graph.parse(shape_file, format="turtle")
-            except Exception as e:
-                logger.warning("Failed to parse shape file %s: %s", shape_file.name, e)
-
     return shapes_graph
 
 
@@ -52,7 +75,8 @@ def check_shacl_file(file_path: Path, context: WikiConfig, verbose: bool = False
     if not data:
         return None
 
-    shapes_graph = load_shapes(context)
+    source_graph = load_graph(context, infer=False) # Minimizing overhead for single file check, but loading pool shapes
+    shapes_graph = load_shapes(source_graph)
     data_graph = frontmatter_to_graph(data, context, file_id=file_path.stem)
 
     conforms, _, results_text = pyshacl.validate(
@@ -65,26 +89,12 @@ def check_shacl_file(file_path: Path, context: WikiConfig, verbose: bool = False
 
 
 def check_shacl_all(context: WikiConfig, verbose: bool = False) -> tuple[bool, str]:
-    """Validate all wiki documents as a single unified Graph against loaded shapes."""
-    shapes_graph = load_shapes(context)
-    data_graph = Graph()
-    context.bind_namespaces(data_graph)
+    """Validate the unified graph against SHACL shapes extracted from that same graph."""
+    data_graph = load_graph(context, infer=True)
+    shapes_graph = load_shapes(data_graph)
 
-    errors = []
-    has_files = False
-
-    if context.wiki_dir.exists():
-        for md_file in sorted(context.wiki_dir.glob("*.md")):
-            try:
-                data = frontmatter_from_path(md_file)
-                if data:
-                    data_graph += frontmatter_to_graph(data, context, file_id=md_file.stem)
-                    has_files = True
-            except Exception as e:
-                errors.append((md_file.name, str(e)))
-
-    if not has_files:
-        return True, "No markdown documents with frontmatter found to validate."
+    if len(data_graph) == 0:
+        return True, "The data graph is empty. Nothing to validate."
 
     conforms, _, results_text = pyshacl.validate(
         data_graph,
@@ -92,11 +102,6 @@ def check_shacl_all(context: WikiConfig, verbose: bool = False) -> tuple[bool, s
         inference="rdfs",
         abort_on_first=False,
     )
-
-    if errors:
-        results_text += f"\nParse errors encountered ({len(errors)}):\n"
-        for name, err in errors:
-            results_text += f"  - {name}: {err}\n"
 
     return conforms, results_text
 

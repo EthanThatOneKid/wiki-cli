@@ -31,6 +31,17 @@ def resolve_predicate(key: str, context: Context) -> URIRef:
     return context.namespaces["schema"][key]
 
 
+def resolve_type(t: Any, context: Context) -> URIRef:
+    """Map a frontmatter type to an RDF type URI using managed namespaces."""
+    if isinstance(t, str):
+        if ":" in t:
+            prefix, name = t.split(":", 1)
+            if prefix in context.namespaces:
+                return context.namespaces[prefix][name]
+        return context.namespaces["schema"][t]
+    return URIRef(str(t))
+
+
 def resolve_object(key: str, value: Any, graph: Graph, subject: URIRef, context: Context) -> None:
     """Add a predicate-object pair to the graph, recursively handling nested structures."""
     pred = resolve_predicate(key, context)
@@ -56,12 +67,23 @@ def resolve_object(key: str, value: Any, graph: Graph, subject: URIRef, context:
             for k, v in value.items():
                 if not k.startswith("@"):
                     resolve_object(k, v, graph, blank, context)
-    elif isinstance(value, str) and value.startswith("http"):
-        graph.add((subject, pred, URIRef(value)))
+    elif isinstance(value, str):
+        if value.startswith("http"):
+            graph.add((subject, pred, URIRef(value)))
+        elif ":" in value and " " not in value and "\n" not in value:
+            prefix, name = value.split(":", 1)
+            if prefix in context.namespaces:
+                graph.add((subject, pred, URIRef(context.namespaces[prefix][name])))
+            else:
+                graph.add((subject, pred, Literal(value)))
+        else:
+            graph.add((subject, pred, Literal(value)))
     elif isinstance(value, bool):
         graph.add((subject, pred, Literal(value, datatype=XSD.boolean)))
     elif isinstance(value, (int, float)):
         graph.add((subject, pred, Literal(value)))
+    elif hasattr(value, "isoformat") and hasattr(value, "year"): # Check for datetime/date
+        graph.add((subject, pred, Literal(value, datatype=XSD.date)))
     elif value is not None:
         graph.add((subject, pred, Literal(str(value))))
 
@@ -91,13 +113,18 @@ def frontmatter_to_graph(data: dict[str, Any], context: Context, file_id: Option
             else:
                 doc_id = f"{context.wiki_base}{kebab_case(name)}.md"
 
+    if doc_id and ":" in doc_id:
+        prefix, name = doc_id.split(":", 1)
+        if prefix in context.namespaces:
+            doc_id = str(context.namespaces[prefix][name])
+
     subject = URIRef(doc_id)
 
     if isinstance(rdf_type, list):
         for t in rdf_type:
-            graph.add((subject, RDF.type, URIRef(f"{context.namespaces['schema']}{t}")))
+            graph.add((subject, RDF.type, resolve_type(t, context)))
     elif rdf_type:
-        graph.add((subject, RDF.type, URIRef(f"{context.namespaces['schema']}{rdf_type}")))
+        graph.add((subject, RDF.type, resolve_type(rdf_type, context)))
 
     for key, value in data.items():
         if key.startswith("@") or key in ("id", "type"):
@@ -180,34 +207,61 @@ def load_graph(context: Context, infer: bool = True) -> Graph:
     # Load primary wiki documents
     if context.wiki_dir.exists():
         for md_file in context.wiki_dir.glob("*.md"):
-            data = frontmatter_from_path(md_file)
-            if data:
+            try:
+                content = md_file.read_text(encoding="utf-8")
+                
+                # 1. Extract frontmatter data
+                data = frontmatter_from_path(md_file)
                 body = None
-                if hasattr(context, "content_predicate") and context.content_predicate:
-                    try:
-                        content = md_file.read_text(encoding="utf-8")
+                if data:
+                    if hasattr(context, "content_predicate") and context.content_predicate:
                         parts = content.split("---", 2)
                         if len(parts) > 2:
                             body = parts[2].strip()
+                    graph += frontmatter_to_graph(data, context, file_id=md_file.stem, body=body)
+
+                # 2. Extract and parse any ```turtle blocks natively into the graph
+                turtle_blocks = re.findall(r"```turtle\s*([\s\S]*?)```", content)
+                for block in turtle_blocks:
+                    try:
+                        graph.parse(data=block.strip(), format="turtle")
                     except Exception:
-                        pass
-                graph += frontmatter_to_graph(data, context, file_id=md_file.stem, body=body)
+                        pass # Ignore parsing errors in individual code blocks
+            except Exception:
+                pass
 
     # Load raw documents if configured and present
     if context.raw_dir.exists():
         for md_file in context.raw_dir.glob("*.md"):
-            data = frontmatter_from_path(md_file)
-            if data:
+            try:
+                content = md_file.read_text(encoding="utf-8")
+                
+                data = frontmatter_from_path(md_file)
                 body = None
-                if hasattr(context, "content_predicate") and context.content_predicate:
-                    try:
-                        content = md_file.read_text(encoding="utf-8")
+                if data:
+                    if hasattr(context, "content_predicate") and context.content_predicate:
                         parts = content.split("---", 2)
                         if len(parts) > 2:
                             body = parts[2].strip()
+                    graph += frontmatter_to_graph(data, context, file_id=md_file.stem, body=body)
+
+                turtle_blocks = re.findall(r"```turtle\s*([\s\S]*?)```", content)
+                for block in turtle_blocks:
+                    try:
+                        graph.parse(data=block.strip(), format="turtle")
                     except Exception:
                         pass
-                graph += frontmatter_to_graph(data, context, file_id=md_file.stem, body=body)
+            except Exception:
+                pass
+
+    # Load static RDF imports from consolidated directories
+    for import_dir in getattr(context, "import_dirs", []):
+        if import_dir.exists():
+            for ttl_file in sorted(import_dir.glob("*.ttl")):
+                try:
+                    graph.parse(ttl_file, format="turtle")
+                except Exception:
+                    pass
 
     resolve_blank_nodes(graph, context.wiki_dir, context)
 

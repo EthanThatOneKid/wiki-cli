@@ -66,8 +66,8 @@ def table_format(result: Any) -> str:
     return "\n".join(lines)
 
 
-def markdown_format(result: Any) -> str:
-    """Format SPARQL SELECT results as a GitHub Flavored Markdown table."""
+def markdown_format(result: Any, wiki_base: str | None = None) -> str:
+    """Format SPARQL SELECT results as a GitHub Flavored Markdown table, rendering wiki links when applicable."""
     rows = list(result)
     if not rows:
         return "(no results)"
@@ -102,9 +102,13 @@ def markdown_format(result: Any) -> str:
                     vals.append("")
                 else:
                     s = str(v)
-                    match = re.search(r"https://(?:book\.etok\.me|EthanThatOneKid\.github\.io/book)/wiki/([^/]+)\.md", s)
-                    if match:
-                        s = f"[[{match.group(1)}]]"
+                    if wiki_base and s.startswith(wiki_base):
+                        # Extract the relative slug and clean up .md suffixes
+                        slug = s[len(wiki_base):]
+                        if slug.endswith(".md"):
+                            slug = slug[:-3]
+                        if "/" not in slug: # Simple check to verify it's a direct page
+                            s = f"[[{slug}]]"
                     vals.append(s)
         else:
             vals = []
@@ -114,16 +118,19 @@ def markdown_format(result: Any) -> str:
                     vals.append("")
                 else:
                     s = str(v)
-                    match = re.search(r"https://(?:book\.etok\.me|EthanThatOneKid\.github\.io/book)/wiki/([^/]+)\.md", s)
-                    if match:
-                        s = f"[[{match.group(1)}]]"
+                    if wiki_base and s.startswith(wiki_base):
+                        slug = s[len(wiki_base):]
+                        if slug.endswith(".md"):
+                            slug = slug[:-3]
+                        if "/" not in slug:
+                            s = f"[[{slug}]]"
                     vals.append(s)
         lines.append("| " + " | ".join(vals) + " |")
 
     return "\n".join(lines)
 
 
-def run_query(graph: Any, query: str, output_format: str = "table") -> str:
+def run_query(graph: Any, query: str, output_format: str = "table", wiki_base: str | None = None) -> str:
     """Run a SPARQL SELECT or CONSTRUCT query against the graph, returning formatted output."""
     q = query.strip().upper()
     is_construct = q.startswith("CONSTRUCT") or q.startswith("DESCRIBE")
@@ -143,7 +150,7 @@ def run_query(graph: Any, query: str, output_format: str = "table") -> str:
     elif output_format == "tsv":
         return result.serialize(format="tsv").decode("utf-8")
     elif output_format in ("markdown", "md"):
-        return markdown_format(result)
+        return markdown_format(result, wiki_base=wiki_base)
     else:
         return table_format(result)
 
@@ -155,10 +162,13 @@ SPARQL_BLOCK_REGEX = re.compile(
 )
 
 
-def render_markdown_files(wiki_dir: Path, graph: Any) -> int:
+def render_markdown_files(context: Context, graph: Any) -> int:
     """Iterate over all markdown files, parse and replace dynamic SPARQL sections inline."""
     count = 0
-    for md_file in wiki_dir.glob("*.md"):
+    if not context.wiki_dir.exists():
+        return 0
+        
+    for md_file in context.wiki_dir.glob("*.md"):
         content = md_file.read_text(encoding="utf-8")
         modified = False
 
@@ -166,7 +176,7 @@ def render_markdown_files(wiki_dir: Path, graph: Any) -> int:
             nonlocal modified
             query = match.group(1).strip()
             try:
-                rendered_markdown = run_query(graph, query, output_format="markdown")
+                rendered_markdown = run_query(graph, query, output_format="markdown", wiki_base=context.wiki_base)
                 modified = True
                 return f"<!-- sparql:start -->\n```sparql\n{query}\n```\n\n{rendered_markdown}\n<!-- sparql:end -->"
             except Exception as e:
@@ -183,21 +193,37 @@ def render_markdown_files(wiki_dir: Path, graph: Any) -> int:
 
 @click.group()
 @click.option("--wiki-dir", default=None, help="Directory containing wiki markdown files.")
-@click.option("--shapes-dir", default=None, help="Directory containing SHACL shape files.")
-@click.option("--reasoning-dir", default=None, help="Directory containing OWL/RDFS axioms.")
+@click.option("--shapes-dir", default=None, help="Directory containing SHACL shape files (Legacy).")
+@click.option("--reasoning-dir", default=None, help="Directory containing OWL/RDFS axioms (Legacy).")
+@click.option("--import-dir", "cli_import_dirs", multiple=True, help="Additional directory of RDF data/ontologies to load into the central pool.")
 @click.option("--raw-dir", default=None, help="Directory containing raw markdown files.")
 @click.pass_context
-def main(ctx: click.Context, wiki_dir: Optional[str], shapes_dir: Optional[str], reasoning_dir: Optional[str], raw_dir: Optional[str]) -> None:
+def main(ctx: click.Context, wiki_dir: Optional[str], shapes_dir: Optional[str], reasoning_dir: Optional[str], cli_import_dirs: tuple[str, ...], raw_dir: Optional[str]) -> None:
     """Query, validate, and manage your semantic LLM wiki."""
     config = Context.load()
     if wiki_dir:
         config.wiki_dir = Path(wiki_dir)
     if shapes_dir:
         config.shapes_dir = Path(shapes_dir)
+        config.import_dirs.append(Path(shapes_dir))
     if reasoning_dir:
         config.reasoning_dir = Path(reasoning_dir)
+        config.import_dirs.append(Path(reasoning_dir))
+    if cli_import_dirs:
+        for d in cli_import_dirs:
+            config.import_dirs.append(Path(d))
     if raw_dir:
         config.raw_dir = Path(raw_dir)
+    
+    # Deduplicate while preserving order
+    seen = set()
+    unique_imports = []
+    for d in config.import_dirs:
+        if d not in seen:
+            seen.add(d)
+            unique_imports.append(d)
+    config.import_dirs = unique_imports
+
     ctx.obj = config
 
 
@@ -237,7 +263,7 @@ name: {title}
 def check(config: Context, file: Optional[Path], fix: bool, verbose: bool, strict: bool) -> None:
     """Run unified checks: strict SHACL validation + style audits."""
     from urllib.parse import unquote
-    from .checking import load_shapes, FILENAME_REGEX, WIKILINK_REGEX, MARKDOWN_LINK_REGEX, run_checks, check_shacl_file
+    from .checking import FILENAME_REGEX, WIKILINK_REGEX, MARKDOWN_LINK_REGEX, run_checks, check_shacl_file
 
     if fix:
         if file:
@@ -373,7 +399,7 @@ def query(context: Context, query_args: tuple[str, ...], output_format: str, out
         click.echo(f"Graph stats: {stats['triples']} triples, {stats['subjects']} subjects\n")
 
     try:
-        result = run_query(graph, sparql_query, output_format=output_format)
+        result = run_query(graph, sparql_query, output_format=output_format, wiki_base=context.wiki_base)
         if output:
             output.write_text(result, encoding="utf-8")
             click.echo(f"Written results to {output}")
@@ -391,7 +417,7 @@ def query(context: Context, query_args: tuple[str, ...], output_format: str, out
 def render(context: Context, no_inference: bool, verbose: bool) -> None:
     """Render inline SPARQL blocks in markdown files."""
     graph = load_graph(context, infer=not no_inference)
-    count = render_markdown_files(context.wiki_dir, graph)
+    count = render_markdown_files(context, graph)
     if verbose:
         click.echo(f"Successfully updated {count} markdown files with rendered SPARQL outputs.")
 

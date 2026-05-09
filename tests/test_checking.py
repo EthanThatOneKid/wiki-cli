@@ -58,22 +58,21 @@ And a valid Markdown link [Target](target-page.md) and a broken Markdown link [B
             self.assertTrue(any("Broken Markdown link [missing.md]" in w for w in warnings))
 
     def test_load_shapes_edge_cases(self) -> None:
-        """Test load_shapes handles missing folders and syntax errors gracefully."""
-        # Non-existent directory
+        """Test load_shapes behaves predictably with different underlying graph states."""
+        from wiki_cli.rdf import load_graph
+        from rdflib import Graph
+
+        # Empty graph
         with TemporaryDirectory() as tmpdir:
-            config = WikiConfig(shapes_dir=Path(tmpdir) / "non-existent")
-            shapes = load_shapes(config)
+            data_graph = Graph()
+            shapes = load_shapes(data_graph)
             self.assertEqual(len(shapes), 0)
             
-            # Invalid Turtle file
-            shapes_dir = Path(tmpdir) / "shapes"
-            shapes_dir.mkdir()
-            invalid_ttl = shapes_dir / "invalid.ttl"
-            invalid_ttl.write_text("invalid turtle text", encoding="utf-8")
-            
-            config_with_invalid = WikiConfig(shapes_dir=shapes_dir)
-            shapes_invalid = load_shapes(config_with_invalid)
-            self.assertEqual(len(shapes_invalid), 0)
+            # Loading from configuration with missing directories
+            config = WikiConfig(shapes_dir=Path(tmpdir) / "non-existent")
+            data_graph_conf = load_graph(config, infer=False)
+            shapes_conf = load_shapes(data_graph_conf)
+            self.assertEqual(len(shapes_conf), 0)
 
     def test_check_shacl_file_and_all(self) -> None:
         """Test check_shacl_file and check_shacl_all for conformance."""
@@ -163,6 +162,55 @@ type: schema:WebPage
             self.assertTrue(res_off["conforms"])
             self.assertEqual(len(res_off["warnings"]), 0)
             self.assertEqual(len(res_off["errors"]), 0)
+
+    def test_frontmatter_defined_shapes(self) -> None:
+        """Test that SHACL shapes defined in markdown frontmatter are loaded and enforced."""
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir) / "wiki"
+            shapes_dir = Path(tmpdir) / "shapes"
+            wiki_dir.mkdir()
+            shapes_dir.mkdir()
+
+            config = WikiConfig(wiki_dir=wiki_dir, shapes_dir=shapes_dir)
+
+            # Create a shape inside markdown frontmatter
+            shape_file = wiki_dir / "project-shape.md"
+            shape_file.write_text("""---
+id: wiki:ProjectShape
+type: sh:NodeShape
+sh:targetClass: schema:Project
+sh:property:
+  - sh:path: schema:name
+    sh:minCount: 1
+    sh:datatype: xsd:string
+---
+# Project Shape
+""", encoding="utf-8")
+
+            # Create an invalid project (missing name)
+            invalid_project = wiki_dir / "invalid-project.md"
+            invalid_project.write_text("""---
+type: Project
+---
+""", encoding="utf-8")
+
+            # Create a valid project
+            valid_project = wiki_dir / "valid-project.md"
+            valid_project.write_text("""---
+type: Project
+name: Wiki CLI
+---
+""", encoding="utf-8")
+
+            # Validate the invalid project
+            res_invalid = check_shacl_file(invalid_project, config)
+            self.assertIsNotNone(res_invalid)
+            self.assertFalse(res_invalid[0])  # Should NOT conform because of missing name
+
+            # Validate the valid project
+            res_valid = check_shacl_file(valid_project, config)
+            self.assertIsNotNone(res_valid)
+            self.assertTrue(res_valid[0])  # Should conform
 
 
 if __name__ == "__main__":
