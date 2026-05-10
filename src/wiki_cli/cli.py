@@ -80,6 +80,28 @@ name: {title}
         click.echo(f"Created document {file_path.name}")
 
 
+def _exit_check_results(conforms: bool, errors: list[str], warnings: list[str], verbose: bool) -> None:
+    """Print check results and exit with appropriate code."""
+    if conforms and not errors:
+        if verbose and warnings:
+            click.echo("Warnings:", err=True)
+            for w in warnings:
+                click.echo(f"  - {w}", err=True)
+        sys.exit(0)
+
+    if errors:
+        click.echo("Errors:", err=True)
+        for e in errors:
+            click.echo(f"  - {e}", err=True)
+
+    if verbose and warnings:
+        click.echo("Warnings:", err=True)
+        for w in warnings:
+            click.echo(f"  - {w}", err=True)
+
+    sys.exit(1 if not conforms else 0)
+
+
 @main.command()
 @click.argument("file", required=False, type=click.Path(exists=True, path_type=Path))
 @click.option("--fix", is_flag=True, help="Automatically normalize and format frontmatter blocks.")
@@ -151,24 +173,7 @@ def check(config: Context, file: Optional[Path], fix: bool, verbose: bool, stric
             warnings = []
             conforms = False
 
-        if conforms and not errors:
-            if verbose and warnings:
-                click.echo("Warnings:", err=True)
-                for w in warnings:
-                    click.echo(f"  - {w}", err=True)
-            sys.exit(0)
-
-        if errors:
-            click.echo("Errors:", err=True)
-            for e in errors:
-                click.echo(f"  - {e}", err=True)
-
-        if verbose and warnings:
-            click.echo("Warnings:", err=True)
-            for w in warnings:
-                click.echo(f"  - {w}", err=True)
-
-        sys.exit(1 if not conforms else 0)
+        _exit_check_results(conforms, errors, warnings, verbose)
 
     results = run_checks(config)
 
@@ -181,24 +186,7 @@ def check(config: Context, file: Optional[Path], fix: bool, verbose: bool, stric
         warnings = []
         conforms = False
 
-    if conforms and not errors:
-        if verbose and warnings:
-            click.echo("Warnings:", err=True)
-            for w in warnings:
-                click.echo(f"  - {w}", err=True)
-        sys.exit(0)
-
-    if errors:
-        click.echo("Errors:", err=True)
-        for e in errors:
-            click.echo(f"  - {e}", err=True)
-
-    if verbose and warnings:
-        click.echo("Warnings:", err=True)
-        for w in warnings:
-            click.echo(f"  - {w}", err=True)
-
-    sys.exit(1 if not conforms else 0)
+    _exit_check_results(conforms, errors, warnings, verbose)
 
 
 @main.command()
