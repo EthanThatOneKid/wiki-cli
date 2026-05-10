@@ -133,7 +133,7 @@ def run_query(graph: Any, query: str, output_format: str = "table", wiki_base: s
 
 
 def process_rdf_form(data: dict[str, Any], file_stem: str, context: Any, form: str) -> Any:
-    """Process JSON-LD dictionary into specified serialization form (raw, compact, expanded).
+    """Convert frontmatter dict to the requested RDF serialization form.
 
     Used by the export command to convert frontmatter dicts into various RDF formats.
     """
@@ -144,16 +144,9 @@ def process_rdf_form(data: dict[str, Any], file_stem: str, context: Any, form: s
 
     graph = frontmatter_to_graph(data, context, file_id=file_stem)
 
-    if form == "expanded":
+    if form in ("json-ld", "jsonld"):
         serialized = graph.serialize(format="json-ld", indent=2)
         return json.loads(serialized)
 
-    ctx_map = {}
-    for prefix, namespace in context.namespaces.items():
-        if prefix == "schema":
-            ctx_map["@vocab"] = str(namespace)
-        else:
-            ctx_map[prefix] = str(namespace)
-
-    serialized = graph.serialize(format="json-ld", context=ctx_map, indent=2)
-    return json.loads(serialized)
+    rdf_format = form
+    return graph.serialize(format=rdf_format, indent=2)

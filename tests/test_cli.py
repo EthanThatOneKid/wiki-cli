@@ -169,14 +169,14 @@ name: Gregory
 ---
 """, encoding="utf-8")
             
-            # Bulk export
+            # Bulk export (raw default)
             result_bulk = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export"])
             self.assertEqual(result_bulk.exit_code, 0)
             data_bulk = json.loads(result_bulk.output)
             self.assertEqual(len(data_bulk), 1)
             self.assertEqual(data_bulk[0]["rdf"]["name"], "Gregory")
             
-            # Single file export
+            # Single file export (raw default)
             result_single = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(valid_file)])
             self.assertEqual(result_single.exit_code, 0)
             data_single = json.loads(result_single.output)
@@ -187,6 +187,45 @@ name: Gregory
             no_fm_file.write_text("Hello", encoding="utf-8")
             result_fail = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(no_fm_file)])
             self.assertEqual(result_fail.exit_code, 1)
+    
+    def test_cli_export_formats(self) -> None:
+        """Test that wiki export supports various --form options."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            page = wiki_dir / "alice.md"
+            page.write_text("""---
+type: Person
+name: Alice
+---
+""", encoding="utf-8")
+            
+            # json-ld form returns expanded JSON-LD
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--form", "json-ld"])
+            self.assertEqual(result.exit_code, 0)
+            data = json.loads(result.output)
+            self.assertIsInstance(data["rdf"], list)
+            self.assertIn("@id", data["rdf"][0])
+            
+            # turtle form returns serialized turtle string
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--form", "turtle"])
+            self.assertEqual(result.exit_code, 0)
+            data = json.loads(result.output)
+            self.assertIn("schema:name", data["rdf"])  # turtle has prefix:name
+            self.assertIn("Alice", data["rdf"])
+            
+            # xml form returns serialized RDF/XML string
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--form", "xml"])
+            self.assertEqual(result.exit_code, 0)
+            data = json.loads(result.output)
+            self.assertIn("rdf:Description", data["rdf"])
+            
+            # nt form returns N-Triples string
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--form", "nt"])
+            self.assertEqual(result.exit_code, 0)
+            data = json.loads(result.output)
+            self.assertIn("Alice", data["rdf"])
+            self.assertIn(".", data["rdf"].strip()[-1])  # N-Triples ends with dot
 
 
 if __name__ == "__main__":
