@@ -17,7 +17,10 @@ The Wiki CLI extracts this format directly from wiki documents into the unified 
 
 <div itemscope itemtype="https://schema.org/TechArticle">
   <span itemprop="name">Microdata in LLM Wiki</span>
+  <meta itemprop="description" content="A practical introduction to structuring linked metadata directly in markup." />
   <div itemprop="about" itemscope itemtype="https://schema.org/SoftwareApplication">
-    <span itemprop="name">Wiki CLI</span> supports extraction via BeautifulSoup.
+    <span itemprop="name">Wiki CLI</span> 
+    (<span itemprop="description">A semantic command-line companion for markdown vaults</span>)
+    supports extraction via BeautifulSoup.
   </div>
 </div>
