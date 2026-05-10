@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -13,8 +12,7 @@ import click
 from .config import WikiConfig as Context
 from .parser import normalize_all, normalize_frontmatter_str, frontmatter_from_path
 from .graph import load_graph, graph_stats
-from .infer import apply_inference
-from .audit import check_shacl_all, check_shacl_file, run_checks
+from .audit import check_shacl_file, run_checks
 
 
 def table_format(result: Any) -> str:
@@ -263,7 +261,7 @@ name: {title}
 def check(config: Context, file: Optional[Path], fix: bool, verbose: bool, strict: bool) -> None:
     """Run unified checks: strict SHACL validation + style audits."""
     from urllib.parse import unquote
-    from .audit import FILENAME_REGEX, WIKILINK_REGEX, MARKDOWN_LINK_REGEX, run_checks, check_shacl_file
+    from .audit import FILENAME_REGEX, WIKILINK_REGEX, MARKDOWN_LINK_REGEX
 
     if fix:
         if file:

@@ -10,7 +10,7 @@ from urllib.parse import unquote
 from rdflib import Graph
 import pyshacl
 
-from .config import WikiConfig, Context
+from .config import WikiConfig
 from .parser import frontmatter_from_path
 from .graph import frontmatter_to_graph, load_graph
 

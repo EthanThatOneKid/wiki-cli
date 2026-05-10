@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from rdflib import Graph, URIRef, RDF, RDFS, Namespace
+from rdflib import URIRef, RDF, RDFS, Namespace
 
 from wiki_cli.config import WikiConfig
 from wiki_cli.infer import apply_inference

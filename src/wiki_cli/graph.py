@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any, Optional
-from rdflib import Graph, Literal, URIRef, RDF, RDFS
+from rdflib import Graph, Literal, URIRef, RDF
 from rdflib.namespace import XSD
 
 from .config import Context

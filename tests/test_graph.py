@@ -1,17 +1,16 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from rdflib import Graph, URIRef, RDF, Literal, Namespace
+from rdflib import Graph, URIRef, RDF, Literal
 from rdflib.namespace import XSD
 
-from wiki_cli.config import WikiConfig, Context
+from wiki_cli.config import WikiConfig
 from wiki_cli.graph import (
     frontmatter_to_graph,
     kebab_case,
     resolve_predicate,
     resolve_object,
     build_name_to_id_map,
-    resolve_blank_nodes,
     load_graph,
     graph_stats,
 )
