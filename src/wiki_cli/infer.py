@@ -6,7 +6,7 @@ import logging
 from rdflib import Graph
 import owlrl
 
-from .context import Context
+from .config import Context
 
 logger = logging.getLogger(__name__)
 

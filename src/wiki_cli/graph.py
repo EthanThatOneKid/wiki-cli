@@ -5,11 +5,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any, Optional
-from rdflib import Graph, Literal, URIRef, RDF, RDFS
+from rdflib import Graph, Literal, URIRef, RDF
 from rdflib.namespace import XSD
 
-from .context import Context
-from .frontmatter import frontmatter_from_path
+from .config import Context
+from .parser import frontmatter_from_path
 
 
 def kebab_case(s: str) -> str:
@@ -266,7 +266,7 @@ def load_graph(context: Context, infer: bool = True) -> Graph:
     resolve_blank_nodes(graph, context.wiki_dir, context)
 
     if infer:
-        from .reasoning import apply_inference
+        from .infer import apply_inference
         apply_inference(graph, context)
 
     return graph

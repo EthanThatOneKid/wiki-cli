@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from wiki_cli.frontmatter import (
+from wiki_cli.parser import (
     normalize_frontmatter_str,
     parse_frontmatter,
     to_camel_case,

@@ -1,17 +1,16 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from rdflib import Graph, URIRef, RDF, Literal, Namespace
+from rdflib import Graph, URIRef, RDF, Literal
 from rdflib.namespace import XSD
 
-from wiki_cli.context import WikiConfig, Context
-from wiki_cli.rdf import (
+from wiki_cli.config import WikiConfig
+from wiki_cli.graph import (
     frontmatter_to_graph,
     kebab_case,
     resolve_predicate,
     resolve_object,
     build_name_to_id_map,
-    resolve_blank_nodes,
     load_graph,
     graph_stats,
 )
@@ -74,6 +73,22 @@ class TestRDFFrontmatter(unittest.TestCase):
         resolve_object("nothing", None, graph, subject, self.context)
         nothing_pred = self.context.namespaces["schema"]["nothing"]
         self.assertEqual(len(list(graph.objects(subject, nothing_pred))), 0)
+
+        # 4. Datetime object mapping
+        from datetime import date
+        bday_pred = self.context.namespaces["schema"]["birthDate"]
+        resolve_object("birthDate", date(1990, 1, 1), graph, subject, self.context)
+        self.assertTrue((subject, bday_pred, Literal(date(1990, 1, 1), datatype=XSD.date)) in graph)
+
+        # 5. String with unregistered prefix (falls back to Literal)
+        unreg_pred = self.context.namespaces["schema"]["unregistered"]
+        resolve_object("unregistered", "bogus:value", graph, subject, self.context)
+        self.assertTrue((subject, unreg_pred, Literal("bogus:value")) in graph)
+
+        # 6. Generic object stringification fallback
+        tuple_pred = self.context.namespaces["schema"]["tup"]
+        resolve_object("tup", (1, 2), graph, subject, self.context)
+        self.assertTrue((subject, tuple_pred, Literal("(1, 2)")) in graph)
 
     def test_nested_dict_creates_blank_node(self) -> None:
         """Test that a nested dictionary without explicit @type creates a blank node."""
@@ -201,6 +216,10 @@ class TestRDFFrontmatter(unittest.TestCase):
         g_page = frontmatter_to_graph({"@type": "WebPage", "name": "Some Page"}, self.config)
         self.assertTrue((URIRef(f"{base}some-page.md"), RDF.type, self.context.namespaces["schema"]["WebPage"]) in g_page)
 
+        # Missing @id, type is Person, single name provided (uses kebab fallback)
+        g_single = frontmatter_to_graph({"@type": "Person", "name": "Cher"}, self.config)
+        self.assertTrue((URIRef(f"{base}cher.md"), RDF.type, self.context.namespaces["schema"]["Person"]) in g_single)
+
 
 class TestRDFLoadingAndResolution(unittest.TestCase):
     def test_resolve_blank_nodes_and_load_graph(self) -> None:
@@ -252,6 +271,103 @@ spouse:
             # Test graph stats
             stats = graph_stats(graph)
             self.assertGreater(stats["triples"], 0)
+
+    def test_multi_type_and_implicit_id_mapping(self) -> None:
+        """Test multi-type arrays in frontmatter and implicit ID mapping fallback in loading sequence."""
+        config = WikiConfig()
+        ctx = config.context
+        
+        # 1. Verify multi-type parsing logic executes and adds multiple types
+        data = {
+            "@type": ["Person", "Developer"],
+            "@id": "wiki:multi",
+            "name": "Multi Guy"
+        }
+        g = frontmatter_to_graph(data, ctx)
+        subj = URIRef(ctx.namespaces["wiki"]["multi"])
+        types = list(g.objects(subj, RDF.type))
+        self.assertEqual(len(types), 2)
+        self.assertIn(ctx.namespaces["schema"]["Person"], types)
+        self.assertIn(ctx.namespaces["schema"]["Developer"], types)
+
+        # 2. Verify implicit fallback ID generation inside name-to-id mapper
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            implicit_person = wiki_dir / "implicit.md"
+            implicit_content = """---
+"@type": Person
+givenName: Jimmy
+familyName: Neutron
+---
+"""
+            implicit_person.write_text(implicit_content, encoding="utf-8")
+            name_map = build_name_to_id_map(wiki_dir, ctx)
+            
+            # The fallback format is {wiki_base}{kebab(given)}-{kebab(family)}.md
+            expected_fallback = f"{config.wiki_base}jimmy-neutron.md"
+            self.assertEqual(name_map.get("jimmy neutron"), expected_fallback)
+
+            # 3. Verify implicit fallback for Person with only standalone name
+            single_person = wiki_dir / "single.md"
+            single_person.write_text("---\n\"@type\": Person\nname: Zendaya\n---\n", encoding="utf-8")
+            name_map_2 = build_name_to_id_map(wiki_dir, ctx)
+            self.assertEqual(name_map_2.get("zendaya"), f"{config.wiki_base}zendaya.md")
+
+    def test_load_graph_advanced_sources(self) -> None:
+        """Test the unified graph loader handles raw_dir recursion and gracefully ignores broken internal Turtle."""
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            wiki = root / "wiki"
+            raw = root / "raw"
+            imports = root / "imports"
+            wiki.mkdir()
+            raw.mkdir()
+            imports.mkdir()
+
+            # Create faulty import file to exercise exception catcher in standalone loader
+            bad_ttl = imports / "error.ttl"
+            bad_ttl.write_text("UNPARSABLE NONSENSE", encoding="utf-8")
+
+            # A valid wiki file hosting a MALFORMED turtle codeblock AND a valid body payload
+            valid_md = wiki / "safe.md"
+            valid_md.write_text("""---
+"@type": WebPage
+name: Safe Page
+---
+This is body text loaded by content_predicate.
+```turtle
+@prefix : <#> .
+:broken syntax !!!!!!
+```
+""", encoding="utf-8")
+
+            # A secondary file situated in the raw_dir with valid body payload to verify both loops
+            raw_md = raw / "raw_discovery.md"
+            raw_md.write_text("""---
+"@type": Person
+"@id": "wiki:raw_agent"
+name: Raw Agent
+---
+Raw Body Text.
+""", encoding="utf-8")
+
+            config = WikiConfig(wiki_dir=wiki, raw_dir=raw, import_dirs=[imports])
+            config.content_predicate = "schema:text"
+            
+            # Load graph should not crash due to bad TTLs or broken syntax, and must ingest everything
+            g = load_graph(config, infer=False)
+            
+            self.assertGreater(len(g), 0)
+            # Verify bodies parsed successfully from both standard and raw locations (using contains assertion for multiline bodies)
+            body_text_full = " ".join(str(o) for o in g.objects(None, config.context.namespaces["schema"]["text"]))
+            self.assertIn("This is body text loaded by content_predicate.", body_text_full)
+            self.assertIn("Raw Body Text.", body_text_full)
+            
+            # Must find entity from standard wiki_dir
+            self.assertTrue((None, None, Literal("Safe Page")) in g)
+            # Must find entity from secondary raw_dir
+            raw_agent_uri = config.context.namespaces["wiki"]["raw_agent"]
+            self.assertTrue((raw_agent_uri, RDF.type, config.context.namespaces["schema"]["Person"]) in g)
 
 
 if __name__ == "__main__":

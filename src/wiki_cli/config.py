@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 import yaml
 from rdflib import Namespace, RDF, RDFS, OWL
 from rdflib.namespace import XSD
@@ -37,8 +37,9 @@ DEFAULT_NAMESPACES = {
 class Context:
     """Manages JSON-LD prefix and namespace bindings."""
 
-    def __init__(self, namespaces: dict[str, Any] | None = None) -> None:
+    def __init__(self, namespaces: dict[str, Any] | None = None, wiki_base: str = "https://wiki.example.org/") -> None:
         self.namespaces = DEFAULT_NAMESPACES.copy()
+        self.wiki_base = wiki_base
         if namespaces is not None:
             for prefix, uri in namespaces.items():
                 if isinstance(uri, str):
@@ -89,7 +90,8 @@ class WikiConfig:
             "filenameStyle": "warning",
             "internalLinks": "warning",
         }
-        self.context = context if context is not None else Context({"wiki": wiki_base})
+        self.context = context if context is not None else Context({"wiki": wiki_base}, wiki_base=wiki_base)
+        self.context.wiki_base = wiki_base
         self.content_predicate = content_predicate
 
     @property

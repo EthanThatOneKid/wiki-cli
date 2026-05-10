@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from click.testing import CliRunner
 
-from wiki_cli.__main__ import main
+from wiki_cli.cli import main
 
 
 class TestCLI(unittest.TestCase):
