@@ -239,7 +239,7 @@ def render(context: Context, no_inference: bool, verbose: bool) -> None:
 @main.command()
 @click.argument("file", required=False, type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--output", type=click.Path(path_type=Path), help="File to write serialized RDF output.")
-@click.option("--form", type=click.Choice(["raw", "json-ld", "turtle", "xml", "n3", "nt", "trig", "nquads"]), default="raw", help="RDF serialization format.")
+@click.option("-f", "--form", type=click.Choice(["raw", "json-ld", "turtle", "xml", "n3", "nt", "trig", "nquads"]), default="raw", help="RDF serialization format.")
 @click.pass_obj
 def export(context: Context, file: Optional[Path], output: Optional[Path], form: str) -> None:
     """Compile and export the frontmatter of wiki documents in a supported RDF format."""
