@@ -11,7 +11,7 @@ import click
 
 from .config import WikiConfig as Context
 from .parser import normalize_all, normalize_frontmatter_str, frontmatter_from_path
-from .graph import load_graph, graph_stats
+from .graph import load_graph, graph_stats, frontmatter_to_graph
 from .audit import check_shacl_file, run_checks
 
 
@@ -195,10 +195,11 @@ def render_markdown_files(context: Context, graph: Any) -> int:
 @click.option("--reasoning-dir", default=None, help="Directory containing OWL/RDFS axioms (Legacy).")
 @click.option("--import-dir", "cli_import_dirs", multiple=True, help="Additional directory of RDF data/ontologies to load into the central pool.")
 @click.option("--raw-dir", default=None, help="Directory containing raw markdown files.")
+@click.option("-c", "--config", "config_path", default=".", help="Path to wiki configuration file or parent directory.")
 @click.pass_context
-def main(ctx: click.Context, wiki_dir: Optional[str], shapes_dir: Optional[str], reasoning_dir: Optional[str], cli_import_dirs: tuple[str, ...], raw_dir: Optional[str]) -> None:
+def main(ctx: click.Context, wiki_dir: Optional[str], shapes_dir: Optional[str], reasoning_dir: Optional[str], cli_import_dirs: tuple[str, ...], raw_dir: Optional[str], config_path: str) -> None:
     """Query, validate, and manage your semantic LLM wiki."""
-    config = Context.load()
+    config = Context.load(Path(config_path))
     if wiki_dir:
         config.wiki_dir = Path(wiki_dir)
     if shapes_dir:
@@ -420,36 +421,73 @@ def render(context: Context, no_inference: bool, verbose: bool) -> None:
         click.echo(f"Successfully updated {count} markdown files with rendered SPARQL outputs.")
 
 
+def _process_rdf_form(data: dict[str, Any], file_stem: str, context: Context, form: str) -> Any:
+    """Process JSON-LD dictionary into specified serialization form (raw, compact, expanded)."""
+    if form == "raw":
+        return data
+
+    # Convert dictionary into internal RDF Graph
+    graph = frontmatter_to_graph(data, context, file_id=file_stem)
+
+    if form == "expanded":
+        # Standard raw JSON-LD serialization with no context produces expanded form
+        serialized = graph.serialize(format="json-ld", indent=2)
+        return json.loads(serialized)
+
+    # Construct compaction context mapping from defined namespaces
+    ctx_map = {}
+    for prefix, namespace in context.namespaces.items():
+        if prefix == "schema":
+            ctx_map["@vocab"] = str(namespace)
+        else:
+            ctx_map[prefix] = str(namespace)
+
+    serialized = graph.serialize(format="json-ld", context=ctx_map, indent=2)
+    return json.loads(serialized)
+
+
 @main.command()
 @click.argument("file", required=False, type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--output", type=click.Path(path_type=Path), help="File to write canonical JSON-LD array.")
+@click.option("--form", type=click.Choice(["raw", "compact", "expanded"]), default="raw", help="JSON-LD serialization form.")
 @click.pass_obj
-def export(context: Context, file: Optional[Path], output: Optional[Path]) -> None:
+def export(context: Context, file: Optional[Path], output: Optional[Path], form: str) -> None:
     """Compile and export the Frontmatter of Documents as canonical JSON-LD."""
     if file:
-        data = frontmatter_from_path(file)
+        data = frontmatter_from_path(file, content_predicate=context.content_predicate)
         if data is None:
             click.echo(f"No valid frontmatter block found in {file.name}", err=True)
             sys.exit(1)
-        jsonld_str = json.dumps(data, indent=2)
+            
+        processed_rdf = _process_rdf_form(data, file.stem, context, form)
+        
+        payload = {
+            "name": file.name,
+            "rdf": processed_rdf,
+        }
+        json_str = json.dumps(payload, indent=2, default=str)
         if output:
-            output.write_text(jsonld_str, encoding="utf-8")
-            click.echo(f"Written JSON-LD to {output}")
+            output.write_text(json_str, encoding="utf-8")
+            click.echo(f"Written payload to {output}")
         else:
-            click.echo(jsonld_str)
+            click.echo(json_str)
         sys.exit(0)
 
     converted_list = []
     if context.wiki_dir.exists():
         for md_file in sorted(context.wiki_dir.glob("*.md")):
-            data = frontmatter_from_path(md_file)
+            data = frontmatter_from_path(md_file, content_predicate=context.content_predicate)
             if data:
-                converted_list.append({"file": md_file.name, "jsonld": data})
+                processed_rdf = _process_rdf_form(data, md_file.stem, context, form)
+                converted_list.append({
+                    "name": md_file.name,
+                    "rdf": processed_rdf
+                })
 
-    output_str = json.dumps(converted_list, indent=2)
+    output_str = json.dumps(converted_list, indent=2, default=str)
     if output:
         output.write_text(output_str, encoding="utf-8")
-        click.echo(f"Compiled and written JSON-LD array to {output}")
+        click.echo(f"Compiled and written payload array to {output}")
     else:
         click.echo(output_str)
 

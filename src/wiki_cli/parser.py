@@ -69,14 +69,26 @@ def ensure_context(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def frontmatter_from_path(path: Path) -> Optional[dict[str, Any]]:
-    """Read a markdown file and return its parsed frontmatter dict with context."""
+def frontmatter_from_path(path: Path, content_predicate: Optional[str] = None) -> Optional[dict[str, Any]]:
+    """Read a markdown file and return its parsed frontmatter dict with context.
+    
+    Optionally appends the text content of the body using the provided predicate key.
+    """
     try:
         content = path.read_text(encoding="utf-8")
         data = parse_frontmatter(content)
         if data is None:
             return None
-        return ensure_context(data)
+        data = ensure_context(data)
+        
+        if content_predicate:
+            parts = content.split("---", 2)
+            if len(parts) > 2:
+                body = parts[2].strip()
+                if body:
+                    data[content_predicate] = body
+                    
+        return data
     except Exception:
         return None
 

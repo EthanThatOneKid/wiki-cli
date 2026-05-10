@@ -104,15 +104,18 @@ class WikiConfig:
         self.context.bind_namespaces(graph)
 
     @classmethod
-    def load(cls, base_dir: Path = Path(".")) -> WikiConfig:
-        """Load WikiConfig from wiki.yaml, wiki.yml, or wiki.json if present in base_dir."""
-        config_files = ["wiki.yaml", "wiki.yml", "wiki.json"]
-        for filename in config_files:
-            config_path = base_dir / filename
+    def load(cls, path: Path = Path(".")) -> WikiConfig:
+        """Load WikiConfig from an explicit file path or search standard names in a directory."""
+        if path.is_file():
+            potential_paths = [path]
+        else:
+            potential_paths = [path / f for f in ["wiki.yaml", "wiki.yml", "wiki.json"]]
+
+        for config_path in potential_paths:
             if config_path.exists():
                 try:
                     content = config_path.read_text(encoding="utf-8")
-                    if filename.endswith(".json"):
+                    if config_path.suffix == ".json":
                         data = json.loads(content)
                     else:
                         data = yaml.safe_load(content)
@@ -135,23 +138,31 @@ class WikiConfig:
                         elif not isinstance(import_data, list):
                             import_data = []
 
+                        # Derive absolute reference point for system paths relative to config location
+                        base_dir = config_path.parent.absolute()
+                        def resolve(p: Any) -> Any:
+                            if not p:
+                                return p
+                            path_obj = Path(p)
+                            return path_obj if path_obj.is_absolute() else base_dir / path_obj
+
                         # Derive wiki_base intelligently from explicit property OR context fallback
                         context_wiki_base = None
                         if context_obj and "wiki" in context_obj.namespaces:
                             context_wiki_base = str(context_obj.namespaces["wiki"])
 
                         return cls(
-                            wiki_dir=data.get("wiki_dir") or data.get("wikiDir") or "wiki",
-                            shapes_dir=data.get("shapes_dir") or data.get("shapesDir"),
-                            reasoning_dir=data.get("reasoning_dir") or data.get("reasoningDir"),
-                            import_dirs=import_data,
-                            raw_dir=data.get("raw_dir") or data.get("rawDir") or "raw",
+                            wiki_dir=resolve(data.get("wiki_dir") or data.get("wikiDir") or "wiki"),
+                            shapes_dir=resolve(data.get("shapes_dir") or data.get("shapesDir")),
+                            reasoning_dir=resolve(data.get("reasoning_dir") or data.get("reasoningDir")),
+                            import_dirs=[resolve(d) for d in import_data],
+                            raw_dir=resolve(data.get("raw_dir") or data.get("rawDir") or "raw"),
                             wiki_base=data.get("wiki_base") or data.get("wikiBase") or context_wiki_base or "https://wiki.example.org/",
                             check=data.get("check"),
                             context=context_obj,
                             content_predicate=data.get("content_predicate") or data.get("contentPredicate"),
                         )
                 except Exception as e:
-                    logger.warning("Failed to load config file %s: %s", filename, e)
+                    logger.warning("Failed to load config file %s: %s", config_path.name, e)
 
         return cls()
