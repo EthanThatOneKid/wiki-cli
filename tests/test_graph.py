@@ -252,6 +252,83 @@ spouse:
             stats = graph_stats(graph)
             self.assertGreater(stats["triples"], 0)
 
+    def test_multi_type_and_implicit_id_mapping(self) -> None:
+        """Test multi-type arrays in frontmatter and implicit ID mapping fallback in loading sequence."""
+        config = WikiConfig()
+        ctx = config.context
+        
+        # 1. Verify multi-type parsing logic executes and adds multiple types
+        data = {
+            "@type": ["Person", "Developer"],
+            "@id": "wiki:multi",
+            "name": "Multi Guy"
+        }
+        g = frontmatter_to_graph(data, ctx)
+        subj = URIRef(ctx.namespaces["wiki"]["multi"])
+        types = list(g.objects(subj, RDF.type))
+        self.assertEqual(len(types), 2)
+        self.assertIn(ctx.namespaces["schema"]["Person"], types)
+        self.assertIn(ctx.namespaces["schema"]["Developer"], types)
+
+        # 2. Verify implicit fallback ID generation inside name-to-id mapper
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            implicit_person = wiki_dir / "implicit.md"
+            implicit_content = """---
+"@type": Person
+givenName: Jimmy
+familyName: Neutron
+---
+"""
+            implicit_person.write_text(implicit_content, encoding="utf-8")
+            name_map = build_name_to_id_map(wiki_dir, ctx)
+            
+            # The fallback format is {wiki_base}{kebab(given)}-{kebab(family)}.md
+            expected_fallback = f"{config.wiki_base}jimmy-neutron.md"
+            self.assertEqual(name_map.get("jimmy neutron"), expected_fallback)
+
+    def test_load_graph_advanced_sources(self) -> None:
+        """Test the unified graph loader handles raw_dir recursion and gracefully ignores broken internal Turtle."""
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            wiki = root / "wiki"
+            raw = root / "raw"
+            wiki.mkdir()
+            raw.mkdir()
+
+            # A valid wiki file hosting a MALFORMED turtle codeblock to test exception shielding
+            valid_md = wiki / "safe.md"
+            valid_md.write_text("""---
+"@type": WebPage
+name: Safe Page
+---
+```turtle
+@prefix : <#> .
+:broken syntax !!!!!!
+```
+""", encoding="utf-8")
+
+            # A secondary file situated in the raw_dir to verify parallel folder ingestion
+            raw_md = raw / "raw_discovery.md"
+            raw_md.write_text("""---
+"@type": Person
+"@id": "wiki:raw_agent"
+name: Raw Agent
+---
+""", encoding="utf-8")
+
+            config = WikiConfig(wiki_dir=wiki, raw_dir=raw)
+            
+            # Load graph should not crash due to 'broken syntax' above, and must ingest both files
+            g = load_graph(config, infer=False)
+            
+            self.assertGreater(len(g), 0)
+            # Must find entity from standard wiki_dir
+            self.assertTrue((None, None, Literal("Safe Page")) in g)
+            # Must find entity from secondary raw_dir
+            raw_agent_uri = config.context.namespaces["wiki"]["raw_agent"]
+            self.assertTrue((raw_agent_uri, RDF.type, config.context.namespaces["schema"]["Person"]) in g)
+
 
 if __name__ == "__main__":
     unittest.main()
