@@ -4,4 +4,4 @@ contentPredicate: schema:text
 
 context:
   schema: https://schema.org/
-  wiki: https://book.etok.me/wiki/
+  wiki: https://ethanthatonekid.github.io/wiki-cli/templates/llm-wiki/wiki/
