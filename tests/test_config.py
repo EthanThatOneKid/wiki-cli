@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import yaml
 from rdflib import Graph, Namespace
 
-from wiki_cli.context import Context, WikiConfig, DEFAULT_NAMESPACES
+from wiki_cli.config import Context, WikiConfig, DEFAULT_NAMESPACES
 
 
 class TestContext(unittest.TestCase):

@@ -4,8 +4,8 @@ from tempfile import TemporaryDirectory
 from rdflib import Graph, URIRef, RDF, Literal, Namespace
 from rdflib.namespace import XSD
 
-from wiki_cli.context import WikiConfig, Context
-from wiki_cli.rdf import (
+from wiki_cli.config import WikiConfig, Context
+from wiki_cli.graph import (
     frontmatter_to_graph,
     kebab_case,
     resolve_predicate,
