@@ -11,7 +11,7 @@ from rdflib.namespace import XSD
 from rdflib.parser import Parser, StringInputSource
 from rdflib.plugin import register
 
-from .config import Context
+from .config import Context, WikiConfig
 from .parser import frontmatter_from_path
 
 
@@ -138,7 +138,7 @@ def frontmatter_to_graph(data: dict[str, Any], context: Context, file_id: Option
         elif value:
             resolve_object(key, value, graph, subject, context)
 
-    if body and hasattr(context, "content_predicate") and context.content_predicate:
+    if body and getattr(context, "content_predicate", None):
         resolve_object(context.content_predicate, body, graph, subject, context)
 
     return graph
@@ -292,74 +292,52 @@ class MicrodataParser(Parser):
 register("microdata", Parser, "wiki_cli.graph", "MicrodataParser")
 
 
-def load_graph(context: Context, infer: bool = True) -> Graph:
+def _process_md_file(graph: Graph, md_file: Path, context: WikiConfig) -> None:
+    """Parse a single markdown file into the graph: frontmatter, microdata, and turtle blocks."""
+    content = md_file.read_text(encoding="utf-8")
+
+    data = frontmatter_from_path(md_file)
+    if data:
+        body = None
+        if context.content_predicate:
+            parts = content.split("---", 2)
+            if len(parts) > 2:
+                body = parts[2].strip()
+        graph += frontmatter_to_graph(data, context, file_id=md_file.stem, body=body)
+
+    try:
+        graph.parse(data=content, format="microdata")
+    except Exception:
+        pass
+
+    turtle_blocks = re.findall(r"```turtle\s*([\s\S]*?)```", content)
+    for block in turtle_blocks:
+        try:
+            graph.parse(data=block.strip(), format="turtle")
+        except Exception:
+            pass
+
+
+def load_graph(context: WikiConfig, infer: bool = True) -> Graph:
     """Load all markdown files into a unified Graph, resolving blank nodes."""
     graph = Graph()
     context.bind_namespaces(graph)
 
-    # Load primary wiki documents
     if context.wiki_dir.exists():
         for md_file in context.wiki_dir.glob("*.md"):
             try:
-                content = md_file.read_text(encoding="utf-8")
-                
-                # 1. Extract frontmatter data
-                data = frontmatter_from_path(md_file)
-                body = None
-                if data:
-                    if hasattr(context, "content_predicate") and context.content_predicate:
-                        parts = content.split("---", 2)
-                        if len(parts) > 2:
-                            body = parts[2].strip()
-                    graph += frontmatter_to_graph(data, context, file_id=md_file.stem, body=body)
-                
-                # 2. Extract and parse standard HTML5 Microdata attributes via native plugin loader
-                try:
-                    graph.parse(data=content, format="microdata")
-                except Exception:
-                    pass
-
-                # 3. Extract and parse any ```turtle blocks natively into the graph
-                turtle_blocks = re.findall(r"```turtle\s*([\s\S]*?)```", content)
-                for block in turtle_blocks:
-                    try:
-                        graph.parse(data=block.strip(), format="turtle")
-                    except Exception:
-                        pass
+                _process_md_file(graph, md_file, context)
             except Exception:
                 pass
 
-    # Load raw documents if configured and present
     if context.raw_dir.exists():
         for md_file in context.raw_dir.glob("*.md"):
             try:
-                content = md_file.read_text(encoding="utf-8")
-                
-                data = frontmatter_from_path(md_file)
-                body = None
-                if data:
-                    if hasattr(context, "content_predicate") and context.content_predicate:
-                        parts = content.split("---", 2)
-                        if len(parts) > 2:
-                            body = parts[2].strip()
-                    graph += frontmatter_to_graph(data, context, file_id=md_file.stem, body=body)
-                
-                try:
-                    graph.parse(data=content, format="microdata")
-                except Exception:
-                    pass
-
-                turtle_blocks = re.findall(r"```turtle\s*([\s\S]*?)```", content)
-                for block in turtle_blocks:
-                    try:
-                        graph.parse(data=block.strip(), format="turtle")
-                    except Exception:
-                        pass
+                _process_md_file(graph, md_file, context)
             except Exception:
                 pass
 
-    # Load static RDF imports from consolidated directories
-    for import_dir in getattr(context, "import_dirs", []):
+    for import_dir in context.import_dirs:
         if import_dir.exists():
             for ttl_file in sorted(import_dir.glob("*.ttl")):
                 try:
