@@ -71,8 +71,8 @@ class TestWikiConfig(unittest.TestCase):
             (base_path / "wiki.yaml").write_text(yaml.dump(yaml_content), encoding="utf-8")
             
             config = WikiConfig.load(base_path)
-            self.assertEqual(config.wiki_dir, Path("custom_wiki"))
-            self.assertEqual(config.shapes_dir, Path("custom_shapes"))
+            self.assertEqual(config.wiki_dir, base_path.absolute() / "custom_wiki")
+            self.assertEqual(config.shapes_dir, base_path.absolute() / "custom_shapes")
             self.assertEqual(config.check.get("filenameStyle"), "error")
             self.assertIn("custom_pref", config.namespaces)
 
@@ -90,8 +90,8 @@ class TestWikiConfig(unittest.TestCase):
             (base_path / "wiki.json").write_text(json.dumps(json_content), encoding="utf-8")
             
             config = WikiConfig.load(base_path)
-            self.assertEqual(config.wiki_dir, Path("json_wiki"))
-            self.assertEqual(config.shapes_dir, Path("json_shapes"))
+            self.assertEqual(config.wiki_dir, base_path.absolute() / "json_wiki")
+            self.assertEqual(config.shapes_dir, base_path.absolute() / "json_shapes")
             self.assertIn("json_pref", config.namespaces)
 
     def test_wikiconfig_load_invalid_syntax_fallback(self) -> None:

@@ -174,13 +174,13 @@ name: Gregory
             self.assertEqual(result_bulk.exit_code, 0)
             data_bulk = json.loads(result_bulk.output)
             self.assertEqual(len(data_bulk), 1)
-            self.assertEqual(data_bulk[0]["jsonld"]["name"], "Gregory")
+            self.assertEqual(data_bulk[0]["rdf"]["name"], "Gregory")
             
             # Single file export
             result_single = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(valid_file)])
             self.assertEqual(result_single.exit_code, 0)
             data_single = json.loads(result_single.output)
-            self.assertEqual(data_single["name"], "Gregory")
+            self.assertEqual(data_single["rdf"]["name"], "Gregory")
             
             # Single file export failure (no frontmatter)
             no_fm_file = wiki_dir / "no-fm.md"
