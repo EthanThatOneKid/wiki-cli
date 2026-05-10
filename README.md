@@ -170,7 +170,62 @@ sh:property:
 Requires that all `wiki:Dog` documents must declare a name.
 ```
 
-#### 2. Opt-in full-text SPARQL over Markdown Content
+#### 2. Native Microdata via Turtle Blocks
+You are not limited to YAML headers! For rich semantic embedding directly inside your content flow (comparable to HTML5 Microdata), you can simply declare raw RDF using standard ` ```turtle ` codeblocks anywhere in the markdown body. The CLI extracts and injects these automatically into the unified pool.
+
+````markdown
+# Product X Overview
+Product X is state-of-the-art.
+
+```turtle
+@prefix schema: <https://schema.org/> .
+@prefix wiki: <https://wiki.example.org/> .
+
+wiki:product-x a schema:Product ;
+    schema:name "Quantum Processor X" ;
+    schema:offers [
+        a schema:Offer ;
+        schema:price "999.99" ;
+        schema:priceCurrency "USD"
+    ] .
+```
+````
+
+#### 3. Decentralized OWL Inference
+Because the tool integrates a full `owlrl` engine over the entire wiki graph, you can scatter ontological rules across disparate markdown pages and the CLI will automatically compute the logical closure. 
+
+Define a class hierarchy inside a shape file:
+```yaml
+# wiki/engineer-definition.md
+---
+id: wiki:Engineer
+type: owl:Class
+rdfs:subClassOf: schema:Person
+---
+# Engineer
+An Engineer is a specialized subset of Person.
+```
+
+Declare an instance somewhere else:
+```yaml
+# wiki/gregory.md
+---
+id: wiki:gregory
+type: wiki:Engineer
+name: Gregory
+---
+```
+
+When you run queries, the reasoner **automatically infers** the implicit connection:
+```sparql
+# This returns Gregory, even though his type is "Engineer", NOT "Person"!
+SELECT ?name WHERE {
+  ?entity a schema:Person ;
+          schema:name ?name .
+}
+```
+
+#### 4. Opt-in full-text SPARQL over Markdown Content
 By enabling `contentPredicate` in your `wiki.yaml`, the unstructured markdown body (everything after the frontmatter) is automatically loaded as a literal under your configured predicate (e.g. `schema:text`). This allows you to perform hybrid logical and full-text searches inside a single SPARQL query:
 
 ```sparql
