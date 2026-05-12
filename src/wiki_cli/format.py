@@ -132,21 +132,21 @@ def run_query(graph: Any, query: str, output_format: str = "table", wiki_base: s
         return table_format(result)
 
 
-def process_rdf_form(data: dict[str, Any], file_stem: str, context: Any, form: str) -> Any:
-    """Convert frontmatter dict to the requested RDF serialization form.
+def process_rdf_format(data: dict[str, Any], file_stem: str, context: Any, output_format: str) -> Any:
+    """Convert frontmatter dict to the requested RDF serialization format.
 
     Used by the export command to convert frontmatter dicts into various RDF formats.
     """
-    if form == "raw":
+    if output_format == "raw":
         return data
 
     from .graph import frontmatter_to_graph
 
     graph = frontmatter_to_graph(data, context, file_id=file_stem)
 
-    if form in ("json-ld", "jsonld"):
+    if output_format in ("json-ld", "jsonld"):
         serialized = graph.serialize(format="json-ld", indent=2)
         return json.loads(serialized)
 
-    rdf_format = form
+    rdf_format = output_format
     return graph.serialize(format=rdf_format, indent=2)

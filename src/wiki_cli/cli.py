@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 import click
 
 from .config import WikiConfig as Context
-from .format import run_query, process_rdf_form
+from .format import run_query, process_rdf_format
 from .render import render_markdown_files
 from .parser import normalize_all, normalize_frontmatter_str, frontmatter_from_path
 from .graph import load_graph, graph_stats
@@ -239,45 +239,71 @@ def render(context: Context, no_inference: bool, verbose: bool) -> None:
 @main.command()
 @click.argument("file", required=False, type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--output", type=click.Path(path_type=Path), help="File to write serialized RDF output.")
-@click.option("-f", "--form", type=click.Choice(["raw", "json-ld", "turtle", "xml", "n3", "nt", "trig", "nquads"]), default="raw", help="RDF serialization format.")
+@click.option("-f", "--format", "output_format", type=click.Choice(["raw", "json-ld", "turtle", "xml", "n3", "nt", "trig", "nquads", "html"]), default="raw", help="Output serialization format.")
 @click.pass_obj
-def export(context: Context, file: Optional[Path], output: Optional[Path], form: str) -> None:
-    """Compile and export the frontmatter of wiki documents in a supported RDF format."""
-    if file:
-        data = frontmatter_from_path(file, content_predicate=context.content_predicate)
-        if data is None:
-            click.echo(f"No valid frontmatter block found in {file.name}", err=True)
-            sys.exit(1)
-            
-        processed_rdf = process_rdf_form(data, file.stem, context, form)
+def export(context: Context, file: Optional[Path], output: Optional[Path], output_format: str) -> None:
+    """Compile and export wiki documents in a supported RDF or HTML format."""
+    result_payload: Any = None
+
+    if output_format == "html":
+        from .site import build_site, build_index_html, build_page_html
+        site = build_site(context.wiki_dir)
         
-        payload = {
-            "name": file.name,
-            "rdf": processed_rdf,
-        }
-        json_str = json.dumps(payload, indent=2, default=str)
-        if output:
-            output.write_text(json_str, encoding="utf-8")
-            click.echo(f"Written payload to {output}")
+        if file:
+            target_page = next((p for p in site.pages if p.file_slug == file.stem and not p.section_slug), None)
+            if not target_page:
+                click.echo(f"Error: No indexable markdown found in {file.name}", err=True)
+                sys.exit(1)
+            result_payload = {
+                "name": f"{target_page.file_slug}.html",
+                "content": build_page_html(target_page, site)
+            }
         else:
-            click.echo(json_str)
-        sys.exit(0)
-
-    converted_list = []
-    if context.wiki_dir.exists():
-        for md_file in sorted(context.wiki_dir.glob("*.md")):
-            data = frontmatter_from_path(md_file, content_predicate=context.content_predicate)
-            if data:
-                processed_rdf = process_rdf_form(data, md_file.stem, context, form)
-                converted_list.append({
-                    "name": md_file.name,
-                    "rdf": processed_rdf
+            results = []
+            # Include global index
+            results.append({
+                "name": "index.html",
+                "content": build_index_html(site)
+            })
+            
+            for page in site.pages:
+                name_slug = page.full_slug.replace("/", "-")
+                results.append({
+                    "name": f"{name_slug}.html",
+                    "content": build_page_html(page, site)
                 })
+            result_payload = results
+    else:
+        if file:
+            data = frontmatter_from_path(file, content_predicate=context.content_predicate)
+            if data is None:
+                click.echo(f"No valid frontmatter block found in {file.name}", err=True)
+                sys.exit(1)
+                
+            processed_rdf = process_rdf_format(data, file.stem, context, output_format)
+            result_payload = {
+                "name": file.name,
+                "rdf": processed_rdf,
+            }
+        else:
+            converted_list = []
+            if context.wiki_dir.exists():
+                for md_file in sorted(context.wiki_dir.glob("*.md")):
+                    data = frontmatter_from_path(md_file, content_predicate=context.content_predicate)
+                    if data:
+                        processed_rdf = process_rdf_format(data, md_file.stem, context, output_format)
+                        converted_list.append({
+                            "name": md_file.name,
+                            "rdf": processed_rdf
+                        })
+            result_payload = converted_list
 
-    output_str = json.dumps(converted_list, indent=2, default=str)
+    # Unified serialization and dispatch
+    output_str = json.dumps(result_payload, indent=2, default=str)
     if output:
         output.write_text(output_str, encoding="utf-8")
-        click.echo(f"Compiled and written payload array to {output}")
+        desc = "payload array" if isinstance(result_payload, list) else "payload"
+        click.echo(f"Written {desc} to {output}")
     else:
         click.echo(output_str)
 

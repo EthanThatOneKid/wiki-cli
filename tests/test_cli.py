@@ -189,7 +189,7 @@ name: Gregory
             self.assertEqual(result_fail.exit_code, 1)
     
     def test_cli_export_formats(self) -> None:
-        """Test that wiki export supports various --form options."""
+        """Test that wiki export supports various --format options."""
         runner = CliRunner()
         with TemporaryDirectory() as tmpdir:
             wiki_dir = Path(tmpdir)
@@ -200,28 +200,28 @@ name: Alice
 ---
 """, encoding="utf-8")
             
-            # json-ld form returns expanded JSON-LD
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--form", "json-ld"])
+            # json-ld format returns expanded JSON-LD
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "json-ld"])
             self.assertEqual(result.exit_code, 0)
             data = json.loads(result.output)
             self.assertIsInstance(data["rdf"], list)
             self.assertIn("@id", data["rdf"][0])
             
-            # turtle form returns serialized turtle string
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--form", "turtle"])
+            # turtle format returns serialized turtle string
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "turtle"])
             self.assertEqual(result.exit_code, 0)
             data = json.loads(result.output)
             self.assertIn("schema:name", data["rdf"])  # turtle has prefix:name
             self.assertIn("Alice", data["rdf"])
             
-            # xml form returns serialized RDF/XML string
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--form", "xml"])
+            # xml format returns serialized RDF/XML string
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "xml"])
             self.assertEqual(result.exit_code, 0)
             data = json.loads(result.output)
             self.assertIn("rdf:Description", data["rdf"])
             
-            # nt form returns N-Triples string
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--form", "nt"])
+            # nt format returns N-Triples string
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "nt"])
             self.assertEqual(result.exit_code, 0)
             data = json.loads(result.output)
             self.assertIn("Alice", data["rdf"])
