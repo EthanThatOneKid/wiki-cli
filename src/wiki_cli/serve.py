@@ -1,0 +1,437 @@
+"""Local HTTP server for browsing the wiki as HTML -- no external web frameworks."""
+
+from __future__ import annotations
+
+import html as html_module
+import json
+import re
+import signal
+import sys
+from dataclasses import dataclass, field
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
+from typing import Any, Optional
+
+from markdown_it import MarkdownIt
+from mdit_py_plugins.wikilink import wikilink_plugin
+
+from .parser import parse_frontmatter
+
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
+WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
+
+INLINE_CSS = """
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;line-height:1.6;max-width:960px;margin:0 auto;padding:20px;color:#1a1a2e;background:#fafafa}
+a{color:#2563eb;text-decoration:none}
+a:hover{text-decoration:underline}
+a.wikilink{color:#2563eb}
+h1,h2,h3,h4,h5,h6{margin-top:1.5em;margin-bottom:.5em;font-weight:600;line-height:1.3}
+h1{font-size:2em;border-bottom:2px solid #e5e7eb;padding-bottom:.3em}
+h2{font-size:1.5em;border-bottom:1px solid #e5e7eb;padding-bottom:.2em}
+h3{font-size:1.25em}
+p{margin-bottom:1em}
+ul,ol{margin-bottom:1em;padding-left:2em}
+pre{background:#1e1e2e;color:#cdd6f4;padding:16px;border-radius:8px;overflow-x:auto;margin-bottom:1em;font-size:.9em}
+code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:.9em}
+pre code{background:0 0;padding:0}
+blockquote{border-left:4px solid #2563eb;padding-left:16px;color:#64748b;margin-bottom:1em}
+table{border-collapse:collapse;width:100%;margin-bottom:1em}
+th,td{border:1px solid #e5e7eb;padding:8px 12px;text-align:left}
+th{background:#f8fafc;font-weight:600}
+img{max-width:100%;height:auto}
+header{border-bottom:1px solid #e5e7eb;padding-bottom:16px;margin-bottom:24px}
+.pages-list,.backlinks-list,.outline-list{list-style:none;padding-left:0}
+.pages-list li,.backlinks-list li,.outline-list li{padding:4px 0}
+.pages-list .sub-page{padding-left:24px;font-size:.9em;color:#64748b}
+.outline-list .l3{padding-left:0}
+.outline-list .l4{padding-left:16px}
+.outline-list .l5{padding-left:32px}
+.outline-list .l6{padding-left:48px}
+.page-meta{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-top:32px}
+.page-meta h2{font-size:1.1em;border:none;margin-top:0}
+.index-header{margin-bottom:24px}
+.site-title{font-size:1.5em;font-weight:700;color:#1a1a2e;text-decoration:none}
+""".strip()
+
+
+def slugify(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^a-z0-9\s-]", "", text)
+    text = re.sub(r"[\s-]+", "-", text)
+    return text.strip("-")
+
+
+def render_wiki_markdown(text: str) -> str:
+    md = MarkdownIt("gfm-like", {"linkify": False})
+    md.use(wikilink_plugin)
+
+    def _wikilink_renderer(self: Any, tokens: Any, idx: int, options: Any, env: Any) -> str:
+        token = tokens[idx]
+        href = token.attrs.get("href", "")
+        content = token.content
+        slug = slugify(href)
+        return f'<a class="wikilink" href="/wiki/{slug}">{html_module.escape(content)}</a>'
+
+    md.add_render_rule("wikilink", _wikilink_renderer)
+    return md.render(text)
+
+
+@dataclass
+class TocItem:
+    title: str
+    slug: str
+    level: int
+
+
+@dataclass
+class VirtualPage:
+    file_slug: str
+    section_slug: str | None
+    title: str
+    level: int
+    markdown: str
+    html: str
+    frontmatter: dict[str, Any]
+    outline: list[TocItem] = field(default_factory=list)
+    backlink_slugs: list[str] = field(default_factory=list)
+
+    @property
+    def full_slug(self) -> str:
+        if self.section_slug:
+            return f"{self.file_slug}/{self.section_slug}"
+        return self.file_slug
+
+    @property
+    def has_frontmatter(self) -> bool:
+        return bool(self.frontmatter)
+
+
+@dataclass
+class WikiSite:
+    pages: list[VirtualPage]
+
+
+def parse_frontmatter_or_empty(content: str) -> dict[str, Any]:
+    data = parse_frontmatter(content)
+    if data is None:
+        return {}
+    cleaned = {}
+    for k, v in data.items():
+        if not k.startswith("@"):
+            cleaned[k] = v
+    return cleaned
+
+
+def split_by_headings(markdown: str) -> list[tuple[int, str, str]]:
+    """Split markdown into sections at H1/H2 boundaries.
+
+    Returns list of (level, title, content_string).
+    Content_string *includes* its own heading line.
+    """
+    lines = markdown.split("\n")
+    sections: list[tuple[int, str, str]] = []
+    start = 0
+    current_level = 0
+    current_title: str | None = None
+
+    for i, line in enumerate(lines):
+        m = HEADING_RE.match(line)
+        if m:
+            level = len(m.group(1))
+            if level in (1, 2):
+                if current_title is not None:
+                    sections.append((current_level, current_title, "\n".join(lines[start:i])))
+                current_level = level
+                current_title = m.group(2).strip()
+                start = i
+
+    if current_title is not None:
+        sections.append((current_level, current_title, "\n".join(lines[start:])))
+    elif not sections and markdown.strip():
+        sections.append((1, "", markdown))
+
+    return sections
+
+
+def build_site(wiki_dir: Path) -> WikiSite:
+    pages: list[VirtualPage] = []
+    md_files = sorted(wiki_dir.glob("*.md"))
+
+    all_file_slugs = {md.stem for md in md_files}
+
+    backlink_index: dict[str, list[str]] = {}
+    for md in md_files:
+        content = md.read_text(encoding="utf-8")
+        for match in WIKILINK_RE.finditer(content):
+            target = slugify(match.group(1).strip())
+            if target not in backlink_index:
+                backlink_index[target] = []
+            if md.stem not in backlink_index[target]:
+                backlink_index[target].append(md.stem)
+
+    for md in md_files:
+        raw = md.read_text(encoding="utf-8")
+        frontmatter = parse_frontmatter_or_empty(raw)
+
+        body_parts = raw.split("---", 2)
+        body = body_parts[2].strip() if len(body_parts) > 2 else raw
+
+        sections = split_by_headings(body)
+
+        all_section_md = "\n".join(section_md for _, _, section_md in sections)
+        h1_title = sections[0][1] if sections else md.stem.replace("-", " ").title()
+
+        h1_toc = []
+        for m in HEADING_RE.finditer(all_section_md):
+            lvl = len(m.group(1))
+            if 3 <= lvl <= 6:
+                h1_toc.append(TocItem(title=m.group(2).strip(), slug=slugify(m.group(2).strip()), level=lvl))
+
+        h1_html = render_wiki_markdown(all_section_md)
+        pages.append(VirtualPage(
+            file_slug=md.stem,
+            section_slug=None,
+            title=h1_title,
+            level=1,
+            markdown=all_section_md,
+            html=h1_html,
+            frontmatter=frontmatter,
+            outline=h1_toc,
+            backlink_slugs=backlink_index.get(md.stem, []),
+        ))
+
+        for level, title, section_md in sections:
+            if level != 2:
+                continue
+            section_slug = slugify(title)
+            toc = []
+            for m in HEADING_RE.finditer(section_md):
+                lvl = len(m.group(1))
+                if 3 <= lvl <= 6:
+                    toc.append(TocItem(title=m.group(2).strip(), slug=slugify(m.group(2).strip()), level=lvl))
+
+            html_content = render_wiki_markdown(section_md)
+            bl = backlink_index.get(section_slug, []) or backlink_index.get(md.stem, [])
+            pages.append(VirtualPage(
+                file_slug=md.stem,
+                section_slug=section_slug,
+                title=title,
+                level=2,
+                markdown=section_md,
+                html=html_content,
+                frontmatter=frontmatter,
+                outline=toc,
+                backlink_slugs=bl,
+            ))
+
+    return WikiSite(pages=pages)
+
+
+def build_index_html(site: WikiSite) -> str:
+    links_html = ""
+    seen_files: set[str] = set()
+    for page in site.pages:
+        if page.file_slug not in seen_files:
+            seen_files.add(page.file_slug)
+            links_html += f'<li><a href="/wiki/{page.file_slug}">{html_module.escape(page.title)}</a></li>\n'
+            for sub in site.pages:
+                if sub.file_slug == page.file_slug and sub.section_slug:
+                    links_html += (
+                        f'<li class="sub-page"><a href="/wiki/{sub.full_slug}">'
+                        f"{html_module.escape(sub.title)}</a></li>\n"
+                    )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Wiki Index</title>
+<style>{INLINE_CSS}</style>
+</head>
+<body>
+<header>
+<a href="/" class="site-title">Wiki</a>
+<nav><a href="/">Index</a></nav>
+</header>
+<main>
+<h1>All Pages</h1>
+<ul class="pages-list">
+{links_html}
+</ul>
+</main>
+</body>
+</html>"""
+
+
+def build_page_html(page: VirtualPage, site: WikiSite) -> str:
+    toc_html = ""
+    if page.outline:
+        items = ""
+        for item in page.outline:
+            items += f'<li class="l{item.level}"><a href="#{item.slug}">{html_module.escape(item.title)}</a></li>\n'
+        toc_html = f"""<section class="page-meta">
+<h2>On this page</h2>
+<ul class="outline-list">
+{items}
+</ul>
+</section>"""
+
+    bl_html = ""
+    if page.backlink_slugs:
+        items = ""
+        for bl in page.backlink_slugs:
+            target: str | None = None
+            for p in site.pages:
+                if p.file_slug == bl and not p.section_slug:
+                    target = p.full_slug
+                    break
+                if p.file_slug == bl:
+                    target = p.full_slug
+            if target is None:
+                target = bl
+            items += f'<li><a href="/wiki/{target}">{html_module.escape(bl.replace("-", " ").title())}</a></li>\n'
+        bl_html = f"""<section class="page-meta">
+<h2>Backlinks</h2>
+<ul class="backlinks-list">
+{items}
+</ul>
+</section>"""
+
+    fm_html = ""
+    if page.frontmatter:
+        fm_html = f"""<section class="page-meta">
+<h2>Metadata</h2>
+<pre><code>{html_module.escape(json.dumps(page.frontmatter, indent=2, default=str))}</code></pre>
+</section>"""
+
+    nav_html = f'<a href="/">Index</a>'
+    if page.level == 2 and page.section_slug:
+        nav_html += f' | <a href="/wiki/{page.file_slug}">Parent: {page.file_slug.replace("-", " ").title()}</a>'
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>{html_module.escape(page.title)} — Wiki</title>
+<style>{INLINE_CSS}</style>
+</head>
+<body>
+<header>
+<a href="/" class="site-title">Wiki</a>
+<nav>{nav_html}</nav>
+</header>
+<main>
+<article>
+{page.html}
+</article>
+{toc_html}
+{bl_html}
+{fm_html}
+</main>
+</body>
+</html>"""
+
+
+class WikiHandler(BaseHTTPRequestHandler):
+    site: WikiSite = None  # type: ignore[assignment]
+
+    def do_GET(self) -> None:
+        parsed = re.sub(r"\?.*$", "", self.path)
+        parsed = parsed.rstrip("/")
+
+        if parsed == "" or parsed == "/index":
+            self._send_html(build_index_html(self.site))
+        elif parsed.startswith("/wiki/"):
+            slug = parsed[6:]
+            target = self._find_page(slug)
+            if target:
+                self._send_html(build_page_html(target, self.site))
+            else:
+                self._send_error(404, f"Page not found: {slug}")
+        else:
+            self._send_error(404, f"Not found: {self.path}")
+
+    def _find_page(self, slug: str) -> VirtualPage | None:
+        for page in self.site.pages:
+            if page.full_slug == slug:
+                return page
+        for page in self.site.pages:
+            if page.file_slug == slug and not page.section_slug:
+                return page
+        for page in self.site.pages:
+            if page.file_slug == slug:
+                return page
+        return None
+
+    def _send_html(self, html: str) -> None:
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_error(self, code: int, message: str) -> None:
+        body = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{code}</title>
+<style>{INLINE_CSS}</style>
+</head>
+<body>
+<header><a href="/" class="site-title">Wiki</a></header>
+<main>
+<h1>{code}</h1>
+<p>{html_module.escape(message)}</p>
+</main>
+</body>
+</html>""".encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        sys.stderr.write(f"[{self.log_date_time_string()}] {fmt % args}\n")
+
+
+def create_server(
+    wiki_dir: Path,
+    host: str = "127.0.0.1",
+    port: int = 8080,
+) -> HTTPServer:
+    """Build the site and return a configured HTTPServer (not yet started)."""
+    site = build_site(wiki_dir)
+    WikiHandler.site = site
+
+    server = HTTPServer((host, port), WikiHandler)
+    print(f"Wiki server ready at http://{host}:{port}/")
+    print(f"Serving {len(site.pages)} pages from {wiki_dir}")
+    return server
+
+
+def run_server(
+    wiki_dir: Path,
+    host: str = "127.0.0.1",
+    port: int = 8080,
+) -> None:
+    """Create and start the wiki HTTP server, blocking until shutdown."""
+    server = create_server(wiki_dir, host=host, port=port)
+
+    def shutdown(*_: Any) -> None:
+        print("\nShutting down server...")
+        server.shutdown()
+
+    try:
+        signal.signal(signal.SIGINT, shutdown)
+        signal.signal(signal.SIGTERM, shutdown)
+    except ValueError:
+        pass  # not in main thread – no interactive signal handling
+
+    print("Press Ctrl+C to stop.")
+    server.serve_forever()

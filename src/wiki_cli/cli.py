@@ -282,6 +282,16 @@ def export(context: Context, file: Optional[Path], output: Optional[Path], form:
         click.echo(output_str)
 
 
+@main.command()
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host to bind the server to.")
+@click.option("--port", default=8080, type=int, show_default=True, help="Port to serve on.")
+@click.pass_obj
+def serve(config: Context, host: str, port: int) -> None:
+    """Start a local HTTP server for browsing the wiki."""
+    from .serve import run_server
+    run_server(config.wiki_dir, host=host, port=port)
+
+
 if __name__ == "__main__":
     main()
 
