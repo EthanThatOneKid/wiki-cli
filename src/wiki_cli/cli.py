@@ -157,7 +157,7 @@ def check(config: Context, file: Optional[Path], normalize: bool, verbose: bool,
                     warnings.append(
                         f"In {file.name}: Broken Markdown link [{target}] points to non-existent document."
                     )
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             warnings.append(f"Failed to read {file.name} for link audit: {e}")
 
         if strict and warnings:
@@ -211,7 +211,7 @@ def query(context: Context, query_args: tuple[str, ...], output_format: str, out
             click.echo(f"Written results to {output}")
         else:
             click.echo(result)
-    except Exception as e:
+    except (ValueError, SyntaxError, TypeError, RuntimeError) as e:
         click.echo(f"Query Execution Error: {e}", err=True)
         sys.exit(1)
 
@@ -223,9 +223,12 @@ def query(context: Context, query_args: tuple[str, ...], output_format: str, out
 def render(context: Context, no_inference: bool, verbose: bool) -> None:
     """Render inline SPARQL blocks in markdown files."""
     graph = load_graph(context, infer=not no_inference)
-    count = render_markdown_files(context, graph)
+    success_count, error_count = render_markdown_files(context, graph)
     if verbose:
-        click.echo(f"Successfully updated {count} markdown files with rendered SPARQL outputs.")
+        parts = [f"Updated {success_count} files"]
+        if error_count:
+            parts.append(f"{error_count} errors")
+        click.echo(f"Rendered SPARQL: {', '.join(parts)}.")
 
 
 @main.command()
