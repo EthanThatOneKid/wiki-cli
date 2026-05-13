@@ -137,7 +137,7 @@ def process_rdf_format(data: dict[str, Any], file_stem: str, context: Any, outpu
 
     Used by the export command to convert frontmatter dicts into various RDF formats.
     """
-    if output_format == "raw":
+    if output_format == "dict":
         return data
 
     from .graph import frontmatter_to_graph

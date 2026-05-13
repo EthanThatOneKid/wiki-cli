@@ -18,23 +18,15 @@ from .audit import check_shacl_file, run_checks
 
 @click.group()
 @click.option("--wiki-dir", default=None, help="Directory containing wiki markdown files.")
-@click.option("--shapes-dir", default=None, help="Directory containing SHACL shape files (Legacy).")
-@click.option("--reasoning-dir", default=None, help="Directory containing OWL/RDFS axioms (Legacy).")
 @click.option("--import-dir", "cli_import_dirs", multiple=True, help="Additional directory of RDF data/ontologies to load into the central pool.")
 @click.option("--raw-dir", default=None, help="Directory containing raw markdown files.")
 @click.option("-c", "--config", "config_path", default=".", help="Path to wiki configuration file or parent directory.")
 @click.pass_context
-def main(ctx: click.Context, wiki_dir: Optional[str], shapes_dir: Optional[str], reasoning_dir: Optional[str], cli_import_dirs: tuple[str, ...], raw_dir: Optional[str], config_path: str) -> None:
+def main(ctx: click.Context, wiki_dir: Optional[str], cli_import_dirs: tuple[str, ...], raw_dir: Optional[str], config_path: str) -> None:
     """Query, validate, and manage your semantic LLM wiki."""
     config = Context.load(Path(config_path))
     if wiki_dir:
         config.wiki_dir = Path(wiki_dir)
-    if shapes_dir:
-        config.shapes_dir = Path(shapes_dir)
-        config.import_dirs.append(Path(shapes_dir))
-    if reasoning_dir:
-        config.reasoning_dir = Path(reasoning_dir)
-        config.import_dirs.append(Path(reasoning_dir))
     if cli_import_dirs:
         for d in cli_import_dirs:
             config.import_dirs.append(Path(d))
@@ -104,16 +96,16 @@ def _exit_check_results(conforms: bool, errors: list[str], warnings: list[str], 
 
 @main.command()
 @click.argument("file", required=False, type=click.Path(exists=True, path_type=Path))
-@click.option("--fix", is_flag=True, help="Automatically normalize and format frontmatter blocks.")
+@click.option("--normalize", is_flag=True, help="Normalize frontmatter key casing and formatting.")
 @click.option("-v", "--verbose", is_flag=True, help="Show style/guideline warnings.")
 @click.option("--strict", is_flag=True, help="Elevate all warnings to errors and exit with code 1.")
 @click.pass_obj
-def check(config: Context, file: Optional[Path], fix: bool, verbose: bool, strict: bool) -> None:
+def check(config: Context, file: Optional[Path], normalize: bool, verbose: bool, strict: bool) -> None:
     """Run unified checks: strict SHACL validation + style audits."""
     from urllib.parse import unquote
     from .audit import FILENAME_REGEX, WIKILINK_REGEX, MARKDOWN_LINK_REGEX
 
-    if fix:
+    if normalize:
         if file:
             original = file.read_text(encoding="utf-8")
             normalized = normalize_frontmatter_str(original)
@@ -191,7 +183,7 @@ def check(config: Context, file: Optional[Path], fix: bool, verbose: bool, stric
 
 @main.command()
 @click.argument("query_args", nargs=-1, required=False)
-@click.option("-f", "--format", "output_format", type=click.Choice(["table", "json", "csv", "tsv", "turtle", "n3", "markdown", "md"]), default="table", help="Output format for query results.")
+@click.option("-f", "--format", "output_format", type=click.Choice(["table", "json", "csv", "tsv", "turtle", "n3", "markdown"]), default="table", help="Output format for query results.")
 @click.option("-o", "--output", type=click.Path(path_type=Path), help="Write output to specified file.")
 @click.option("--no-inference", is_flag=True, help="Skip OWL-RL inference.")
 @click.option("-v", "--verbose", is_flag=True, help="Print graph statistics before query results.")
@@ -237,7 +229,7 @@ def render(context: Context, no_inference: bool, verbose: bool) -> None:
 
 
 @main.command()
-@click.option("-o", "--output-dir", default="_site", show_default=True,
+@click.option("--output-dir", default="_site", show_default=True,
               type=click.Path(path_type=Path), help="Directory to write site files.")
 @click.option("--base-url", default="/wiki", metavar="PATH",
               help="URL prefix for wiki pages (default: /wiki). Empty string for root-level URLs.")
@@ -301,9 +293,9 @@ def build(config: Context, output_dir: Path, base_url: str, url_style: str, verb
 @main.command()
 @click.argument("file", required=False, type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--output", type=click.Path(path_type=Path), help="File to write serialized RDF output.")
-@click.option("-f", "--format", "output_format", type=click.Choice(["raw", "json-ld", "turtle", "xml", "n3", "nt", "trig", "nquads"]), default="raw", help="Output serialization format.")
+@click.option("-r", "--rdf-format", type=click.Choice(["dict", "json-ld", "turtle", "xml", "n3", "nt", "trig", "nquads"]), default="dict", help="RDF serialization format.")
 @click.pass_obj
-def export(context: Context, file: Optional[Path], output: Optional[Path], output_format: str) -> None:
+def export(context: Context, file: Optional[Path], output: Optional[Path], rdf_format: str) -> None:
     """Compile and export wiki documents in a supported RDF format."""
     result_payload: Any = None
 
@@ -313,7 +305,7 @@ def export(context: Context, file: Optional[Path], output: Optional[Path], outpu
             click.echo(f"No valid frontmatter block found in {file.name}", err=True)
             sys.exit(1)
 
-        processed_rdf = process_rdf_format(data, file.stem, context, output_format)
+        processed_rdf = process_rdf_format(data, file.stem, context, rdf_format)
         result_payload = {
             "name": file.name,
             "rdf": processed_rdf,
@@ -324,7 +316,7 @@ def export(context: Context, file: Optional[Path], output: Optional[Path], outpu
             for md_file in sorted(context.wiki_dir.glob("*.md")):
                 data = frontmatter_from_path(md_file, content_predicate=context.content_predicate)
                 if data:
-                    processed_rdf = process_rdf_format(data, md_file.stem, context, output_format)
+                    processed_rdf = process_rdf_format(data, md_file.stem, context, rdf_format)
                     converted_list.append({
                         "name": md_file.name,
                         "rdf": processed_rdf

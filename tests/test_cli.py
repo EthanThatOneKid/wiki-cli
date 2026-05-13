@@ -189,7 +189,7 @@ name: Gregory
             self.assertEqual(result_fail.exit_code, 1)
     
     def test_cli_export_formats(self) -> None:
-        """Test that wiki export supports various --format options."""
+        """Test that wiki export supports various --rdf-format options."""
         runner = CliRunner()
         with TemporaryDirectory() as tmpdir:
             wiki_dir = Path(tmpdir)
@@ -201,27 +201,27 @@ name: Alice
 """, encoding="utf-8")
             
             # json-ld format returns expanded JSON-LD
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "json-ld"])
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "json-ld"])
             self.assertEqual(result.exit_code, 0)
             data = json.loads(result.output)
             self.assertIsInstance(data["rdf"], list)
             self.assertIn("@id", data["rdf"][0])
             
             # turtle format returns serialized turtle string
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "turtle"])
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "turtle"])
             self.assertEqual(result.exit_code, 0)
             data = json.loads(result.output)
             self.assertIn("schema:name", data["rdf"])  # turtle has prefix:name
             self.assertIn("Alice", data["rdf"])
             
             # xml format returns serialized RDF/XML string
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "xml"])
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "xml"])
             self.assertEqual(result.exit_code, 0)
             data = json.loads(result.output)
             self.assertIn("rdf:Description", data["rdf"])
             
             # nt format returns N-Triples string
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "nt"])
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "nt"])
             self.assertEqual(result.exit_code, 0)
             data = json.loads(result.output)
             self.assertIn("Alice", data["rdf"])
@@ -256,7 +256,7 @@ Bob was born.""", encoding="utf-8")
 
             output_dir = Path(tmpdir) / "_site"
 
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "-o", str(output_dir), "-v"])
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "--output-dir", str(output_dir), "-v"])
             self.assertEqual(result.exit_code, 0)
             self.assertIn("Built", result.output)
 
@@ -304,7 +304,7 @@ Bob was born.""", encoding="utf-8")
 
             output_dir = Path(tmpdir) / "_site"
 
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "-o", str(output_dir), "--url-style", "dir", "-v"])
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "--output-dir", str(output_dir), "--url-style", "dir", "-v"])
             self.assertEqual(result.exit_code, 0)
             self.assertIn("Built", result.output)
 
@@ -345,7 +345,7 @@ Hello from [[alice]].""", encoding="utf-8")
 
             output_dir = Path(tmpdir) / "_site"
 
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "-o", str(output_dir), "--base-url", "/my-wiki"])
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "--output-dir", str(output_dir), "--base-url", "/my-wiki"])
             self.assertEqual(result.exit_code, 0)
 
             alice_content = (output_dir / "my-wiki" / "alice.html").read_text()
