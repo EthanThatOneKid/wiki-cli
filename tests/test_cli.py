@@ -9,7 +9,7 @@ from urllib.error import URLError
 
 from click.testing import CliRunner
 
-from llm_wiki.cli import main
+from wiki.cli import main
 
 
 class TestCLI(unittest.TestCase):
@@ -703,7 +703,7 @@ ex:foo ex:bar "from-import-dir" .
     def test_server_serve_real_request(self) -> None:
         """Test wiki serve with real --host/--port via HTTP request."""
         import socket
-        from llm_wiki.serve import run_server
+        from wiki.serve import run_server
 
         with TemporaryDirectory() as tmpdir:
             wiki_dir = Path(tmpdir)
@@ -741,7 +741,7 @@ Hello from server test.
     def test_server_serve_custom_base_url(self) -> None:
         """Test wiki serve with custom --base-url."""
         import socket
-        from llm_wiki.serve import run_server
+        from wiki.serve import run_server
 
         with TemporaryDirectory() as tmpdir:
             wiki_dir = Path(tmpdir)

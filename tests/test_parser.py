@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from llm_wiki.parser import (
+from wiki.parser import (
     parse_frontmatter,
     split_frontmatter_body,
     ensure_context,

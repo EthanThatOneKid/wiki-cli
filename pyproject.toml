@@ -1,6 +1,6 @@
 [project]
 name = "wazootech-wiki"
-version = "0.1.0"
+version = "0.1.1"
 description = "Clean, pure, idiomatic Python CLI for managing a semantic LLM wiki"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,10 +15,10 @@ dependencies = [
 ]
 
 [project.scripts]
-wiki = "llm_wiki.__main__:main"
+wiki = "wiki.__main__:main"
 
 [tool.setuptools]
-packages = ["llm_wiki", "mdit_py_plugins"]
+packages = ["wiki", "mdit_py_plugins"]
 package-dir = {"" = "src"}
 
 [tool.uv]

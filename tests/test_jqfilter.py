@@ -1,5 +1,5 @@
 import unittest
-from llm_wiki.jqfilter import resolve_path
+from wiki.jqfilter import resolve_path
 
 
 class TestJQFilter(unittest.TestCase):
