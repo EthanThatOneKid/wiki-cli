@@ -31,7 +31,7 @@ def render_markdown_files(context: Any, graph: Any, dry_run: bool = False) -> tu
     for input_dir in context.input_dirs:
         if not input_dir.exists():
             continue
-        for md_file in input_dir.glob("*.md"):
+        for md_file in input_dir.rglob("*.md"):
             content = md_file.read_text(encoding="utf-8")
             modified = False
             file_errors = 0

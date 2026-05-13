@@ -27,6 +27,40 @@ WIKILINK_REGEX = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 MARKDOWN_LINK_REGEX = re.compile(r"\[[^\]]+\]\((?!(?:https?://|mailto:|#))([^)]+)\)")
 
 
+def _slugify_segment(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^a-z0-9\s-]", "", text)
+    text = re.sub(r"[\s-]+", "-", text)
+    return text.strip("-")
+
+
+def _slugify_path(text: str) -> str:
+    raw = text.strip().replace("\\", "/").strip("/")
+    if not raw:
+        return ""
+    parts = [p for p in raw.split("/") if p.strip()]
+    return "/".join(_slugify_segment(p) for p in parts)
+
+
+def file_slug_for_path(config: WikiConfig, md_file: Path) -> str:
+    """Return nested slug for a markdown file relative to an input dir."""
+    for root in config.input_dirs:
+        try:
+            rel = md_file.relative_to(root)
+            return _slugify_path(rel.with_suffix("").as_posix())
+        except ValueError:
+            continue
+    return _slugify_path(md_file.with_suffix("").as_posix())
+
+
+def iter_markdown_files(config: WikiConfig) -> list[Path]:
+    md_files: list[Path] = []
+    for input_dir in config.input_dirs:
+        if input_dir.exists():
+            md_files.extend(sorted(input_dir.rglob("*.md")))
+    return md_files
+
+
 def load_shapes(data_graph: Graph) -> Graph:
     """Extract all SHACL relevant triples from a central graph via SPARQL CONSTRUCT."""
     query = """
@@ -130,17 +164,13 @@ def audit_filenames(config: WikiConfig, file_filter: set[str] | None = None) -> 
     Returns a list of warnings.
     """
     warnings = []
-    for input_dir in config.input_dirs:
-        if not input_dir.exists():
+    for md_file in iter_markdown_files(config):
+        slug = file_slug_for_path(config, md_file)
+        if file_filter is not None and slug not in file_filter:
             continue
-        for md_file in sorted(input_dir.glob("*.md")):
-            stem = md_file.stem
-            if file_filter is not None and stem not in file_filter:
-                continue
-            if not FILENAME_REGEX.match(stem):
-                warnings.append(
-                    f"Filename '{md_file.name}' is not lowercase kebab-case."
-                )
+        if not FILENAME_REGEX.match(md_file.stem):
+            # Include the original filename for clearer user feedback.
+            warnings.append(f"Filename '{md_file.name}' is not lowercase kebab-case.")
     return warnings
 
 
@@ -154,41 +184,86 @@ def audit_internal_links(config: WikiConfig, file_filter: set[str] | None = None
     warnings = []
 
     existing_files: set[str] = set()
-    for input_dir in config.input_dirs:
-        if input_dir.exists():
-            existing_files.update(md_file.stem for md_file in input_dir.glob("*.md"))
+    for md_file in iter_markdown_files(config):
+        existing_files.add(file_slug_for_path(config, md_file))
 
-    for input_dir in config.input_dirs:
-        if not input_dir.exists():
+    for md_file in iter_markdown_files(config):
+        md_slug = file_slug_for_path(config, md_file)
+        if file_filter is not None and md_slug not in file_filter:
             continue
-        for md_file in sorted(input_dir.glob("*.md")):
-            if file_filter is not None and md_file.stem not in file_filter:
-                continue
-            try:
-                content = md_file.read_text(encoding="utf-8")
-                
-                # 1. Audit WikiLinks
-                wikilinks = WIKILINK_REGEX.findall(content)
-                for link in wikilinks:
-                    slug = link.strip().lower().replace(" ", "-")
-                    if slug not in existing_files:
-                        warnings.append(
-                            f"In {md_file.name}: Broken WikiLink [[{link}]] points to non-existent document."
-                        )
-                
-                # 2. Audit standard Markdown links
-                md_links = MARKDOWN_LINK_REGEX.findall(content)
-                for target in md_links:
-                    decoded_target = unquote(target.split("#")[0].split("?")[0])
-                    slug = Path(decoded_target).stem.strip().lower().replace(" ", "-")
-                    if slug and slug not in existing_files:
-                        warnings.append(
-                            f"In {md_file.name}: Broken Markdown link [{target}] points to non-existent document."
-                        )
-            except Exception as e:
-                warnings.append(f"Failed to read {md_file.name} for link audit: {e}")
+        try:
+            content = md_file.read_text(encoding="utf-8")
+            
+            # 1. Audit WikiLinks
+            wikilinks = WIKILINK_REGEX.findall(content)
+            for link in wikilinks:
+                slug = _slugify_path(link)
+                if slug not in existing_files:
+                    warnings.append(
+                        f"In {md_slug}.md: Broken WikiLink [[{link}]] points to non-existent document."
+                    )
+            
+            # 2. Audit standard Markdown links
+            md_links = MARKDOWN_LINK_REGEX.findall(content)
+            for target in md_links:
+                decoded_target = unquote(target.split("#")[0].split("?")[0])
+                slug = _slugify_path(Path(decoded_target).with_suffix("").as_posix())
+                if slug and slug not in existing_files:
+                    warnings.append(
+                        f"In {md_slug}.md: Broken Markdown link [{target}] points to non-existent document."
+                    )
+        except Exception as e:
+            warnings.append(f"Failed to read {md_slug}.md for link audit: {e}")
 
     return warnings
+
+
+def _apply_wikilink_renames(content: str, renames: dict[str, str]) -> str:
+    def repl(match: re.Match) -> str:
+        target = match.group(1)
+        normalized = _slugify_path(target)
+        if normalized not in renames:
+            return match.group(0)
+
+        replacement = renames[normalized]
+        full = match.group(0)
+        if "|" in full:
+            display = full.split("|", 1)[1]
+            display = display[:-2] if display.endswith("]]") else display
+            return f"[[{replacement}|{display}]]"
+        return f"[[{replacement}]]"
+
+    return WIKILINK_REGEX.sub(repl, content)
+
+
+def autofix_hygiene(config: WikiConfig) -> dict[str, Any]:
+    """Autofix style issues (currently: filename kebab-case + wikilink updates)."""
+    renames: dict[str, str] = {}
+    renamed_files: list[tuple[str, str]] = []
+
+    # Rename files that violate kebab-case (filename only; directories unchanged)
+    for md_file in iter_markdown_files(config):
+        if FILENAME_REGEX.match(md_file.stem):
+            continue
+        old_slug = file_slug_for_path(config, md_file)
+        new_stem = _slugify_segment(md_file.stem)
+        if not new_stem or new_stem == md_file.stem:
+            continue
+        new_path = md_file.with_name(new_stem + md_file.suffix)
+        md_file.rename(new_path)
+        new_slug = file_slug_for_path(config, new_path)
+        renames[old_slug] = new_slug
+        renamed_files.append((old_slug, new_slug))
+
+    # Update wikilinks to renamed targets across the wiki
+    if renames:
+        for md_file in iter_markdown_files(config):
+            original = md_file.read_text(encoding="utf-8")
+            updated = _apply_wikilink_renames(original, renames)
+            if updated != original:
+                md_file.write_text(updated, encoding="utf-8")
+
+    return {"renamed": renamed_files, "updated_wikilinks": bool(renames)}
 
 
 def run_checks(config: WikiConfig) -> dict[str, Any]:

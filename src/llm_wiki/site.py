@@ -52,11 +52,21 @@ header{border-bottom:1px solid #e5e7eb;padding-bottom:16px;margin-bottom:24px}
 """.strip()
 
 
-def slugify(text: str) -> str:
+def slugify_segment(text: str) -> str:
+    """Slugify a single path segment (no slashes)."""
     text = text.lower().strip()
     text = re.sub(r"[^a-z0-9\s-]", "", text)
     text = re.sub(r"[\s-]+", "-", text)
     return text.strip("-")
+
+
+def slugify_path(text: str) -> str:
+    """Slugify a potentially nested slug like 'people/Gregory House' -> 'people/gregory-house'."""
+    raw = text.strip().replace("\\", "/").strip("/")
+    if not raw:
+        return ""
+    parts = [p for p in raw.split("/") if p.strip()]
+    return "/".join(slugify_segment(p) for p in parts)
 
 
 def _url(base_url: str, slug: str, style: str) -> str:
@@ -71,7 +81,7 @@ def render_wiki_markdown(text: str, base_url: str = "/wiki", url_style: str = "f
         token = tokens[idx]
         href = token.attrs.get("href", "")
         content = token.content
-        slug = slugify(href)
+        slug = slugify_path(href)
         return f'<a class="wikilink" href="{_url(base_url, slug, url_style)}">{html_module.escape(content)}</a>'
 
     md.add_render_rule("wikilink", _wikilink_renderer)
@@ -148,18 +158,28 @@ def build_site(input_dirs: list[Path] | Path, base_url: str = "/wiki", url_style
     md_files: list[Path] = []
     for d in dirs:
         if d.exists():
-            md_files.extend(sorted(d.glob("*.md")))
+            md_files.extend(sorted(d.rglob("*.md")))
     md_files.sort()
+
+    def file_slug(md: Path) -> str:
+        for root in dirs:
+            try:
+                rel = md.relative_to(root)
+                return slugify_path(rel.with_suffix("").as_posix())
+            except ValueError:
+                continue
+        return slugify_path(md.with_suffix("").as_posix())
 
     backlink_index: dict[str, list[str]] = {}
     for md in md_files:
         content = md.read_text(encoding="utf-8")
+        source_slug = file_slug(md)
         for match in WIKILINK_RE.finditer(content):
-            target = slugify(match.group(1).strip())
+            target = slugify_path(match.group(1).strip())
             if target not in backlink_index:
                 backlink_index[target] = []
-            if md.stem not in backlink_index[target]:
-                backlink_index[target].append(md.stem)
+            if source_slug not in backlink_index[target]:
+                backlink_index[target].append(source_slug)
 
     for md in md_files:
         raw = md.read_text(encoding="utf-8")
@@ -169,17 +189,18 @@ def build_site(input_dirs: list[Path] | Path, base_url: str = "/wiki", url_style
         sections = split_by_headings(body)
 
         all_section_md = "\n".join(section_md for _, _, section_md in sections)
-        h1_title = sections[0][1] if sections else md.stem.replace("-", " ").title()
+        md_slug = file_slug(md)
+        h1_title = sections[0][1] if sections else md_slug.split("/")[-1].replace("-", " ").title()
 
         h1_toc = []
         for m in HEADING_RE.finditer(all_section_md):
             lvl = len(m.group(1))
             if 3 <= lvl <= 6:
-                h1_toc.append(TocItem(title=m.group(2).strip(), slug=slugify(m.group(2).strip()), level=lvl))
+                h1_toc.append(TocItem(title=m.group(2).strip(), slug=slugify_segment(m.group(2).strip()), level=lvl))
 
         h1_html = render_wiki_markdown(all_section_md, base_url=base_url, url_style=url_style)
         pages.append(VirtualPage(
-            file_slug=md.stem,
+            file_slug=md_slug,
             section_slug=None,
             title=h1_title,
             level=1,
@@ -187,23 +208,23 @@ def build_site(input_dirs: list[Path] | Path, base_url: str = "/wiki", url_style
             html=h1_html,
             frontmatter=frontmatter,
             outline=h1_toc,
-            backlink_slugs=backlink_index.get(md.stem, []),
+            backlink_slugs=backlink_index.get(md_slug, []),
         ))
 
         for level, title, section_md in sections:
             if level != 2:
                 continue
-            section_slug = slugify(title)
+            section_slug = slugify_segment(title)
             toc = []
             for m in HEADING_RE.finditer(section_md):
                 lvl = len(m.group(1))
                 if 3 <= lvl <= 6:
-                    toc.append(TocItem(title=m.group(2).strip(), slug=slugify(m.group(2).strip()), level=lvl))
+                    toc.append(TocItem(title=m.group(2).strip(), slug=slugify_segment(m.group(2).strip()), level=lvl))
 
             html_content = render_wiki_markdown(section_md, base_url=base_url, url_style=url_style)
-            bl = backlink_index.get(section_slug, []) or backlink_index.get(md.stem, [])
+            bl = backlink_index.get(section_slug, []) or backlink_index.get(md_slug, [])
             pages.append(VirtualPage(
-                file_slug=md.stem,
+                file_slug=md_slug,
                 section_slug=section_slug,
                 title=title,
                 level=2,

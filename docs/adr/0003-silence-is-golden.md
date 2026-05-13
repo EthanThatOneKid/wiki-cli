@@ -20,4 +20,4 @@ To preserve the ability to inspect details and summaries during interactive use,
 * **Interactive Flexibility**: Users can opt-in to detailed action feedback anytime using the `-v` or `--verbose` flag.
 
 ### Negative
-* Interactive users must append `-v` or `--verbose` to see a success message (e.g., `Successfully updated X files...` or `Normalized frontmatter...`).
+* Interactive users must append `-v` or `--verbose` to see a success message (e.g., `Successfully updated X files...`).

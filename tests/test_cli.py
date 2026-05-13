@@ -38,36 +38,59 @@ name: Invalid Page
             self.assertIn("Errors:", result_strict.output)
             self.assertIn("is not lowercase kebab-case", result_strict.output)
 
-    def test_cli_check_normalize(self) -> None:
-        """Test that wiki check --normalize standardizes frontmatter keys."""
+    def test_cli_check_does_not_normalize_frontmatter(self) -> None:
+        """Test that check performs no frontmatter key normalization (strict SHACL on exact keys)."""
         runner = CliRunner()
         with TemporaryDirectory() as tmpdir:
             wiki_dir = Path(tmpdir)
+            shape_path = wiki_dir / "person-shape.ttl"
+            shape_path.write_text("""
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix schema: <https://schema.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+schema:PersonShape
+  a sh:NodeShape ;
+  sh:targetClass schema:Person ;
+  sh:property [
+    sh:path schema:givenName ;
+    sh:minCount 1 ;
+    sh:datatype xsd:string ;
+  ] ;
+  sh:property [
+    sh:path schema:familyName ;
+    sh:minCount 1 ;
+    sh:datatype xsd:string ;
+  ] .
+""", encoding="utf-8")
+
             file_path = wiki_dir / "alice.md"
             file_path.write_text("""---
-given_name: Alice
 type: Person
+given_name: Alice
+family_name: Anderson
 ---
 # Alice
 """, encoding="utf-8")
 
-            # Normalize single file (given_name -> givenName)
-            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "check", str(file_path), "--normalize"])
-            self.assertEqual(result.exit_code, 0)
+            # Without --fix: should FAIL SHACL because keys don't match expected schema:givenName/familyName.
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "check", str(file_path), "-v"])
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn("SHACL Validation Violation", result.output)
             content = file_path.read_text(encoding="utf-8")
-            self.assertIn("givenName: Alice", content)
-            self.assertNotIn("given_name: Alice", content)
+            self.assertIn("given_name: Alice", content)
+            self.assertIn("family_name: Anderson", content)
+            self.assertNotIn("givenName:", content)
+            self.assertNotIn("familyName:", content)
 
-            # Bulk normalize multiple files
-            file2 = wiki_dir / "bob.md"
-            file2.write_text("""---
-family_name: Bob
----
-# Bob
-""", encoding="utf-8")
-            result_bulk = runner.invoke(main, ["--input-dir", str(wiki_dir), "check", "--normalize", "-v"])
-            self.assertEqual(result_bulk.exit_code, 0)
-            self.assertIn("Normalized frontmatter in", result_bulk.output)
+            # With --fix: should still NOT rewrite frontmatter keys (only filename/wikilink hygiene).
+            result_fix = runner.invoke(main, ["--input-dir", str(wiki_dir), "check", str(file_path), "--fix", "-v"])
+            self.assertEqual(result_fix.exit_code, 1)
+            fixed_content = file_path.read_text(encoding="utf-8")
+            self.assertIn("given_name: Alice", fixed_content)
+            self.assertIn("family_name: Anderson", fixed_content)
+            self.assertNotIn("givenName:", fixed_content)
+            self.assertNotIn("familyName:", fixed_content)
 
     def test_cli_check_single_file(self) -> None:
         """Test wiki check with a single file specified."""

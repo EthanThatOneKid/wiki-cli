@@ -26,6 +26,21 @@ def kebab_case(s: str) -> str:
     return s
 
 
+def _slugify_path(p: Path) -> str:
+    """Compute a stable nested slug (posix, no extension) for wiki files."""
+    return p.with_suffix("").as_posix().strip("/").lower()
+
+
+def _file_slug(md_file: Path, input_dirs: list[Path]) -> str:
+    for root in input_dirs:
+        try:
+            rel = md_file.relative_to(root)
+            return _slugify_path(rel)
+        except ValueError:
+            continue
+    return _slugify_path(md_file)
+
+
 def resolve_predicate(key: str, context: Context) -> URIRef:
     """Map a frontmatter key to an RDF predicate URI using managed namespaces."""
     if ":" in key:
@@ -145,7 +160,7 @@ def build_person_name_map(input_dirs: list[Path], context: Context, uri_ext: boo
     for input_dir in input_dirs:
         if not input_dir.exists():
             continue
-        for md_file in input_dir.glob("*.md"):
+        for md_file in input_dir.rglob("*.md"):
             try:
                 data = frontmatter_from_path(md_file)
                 if not data or data.get("@type") != "Person":
@@ -154,7 +169,7 @@ def build_person_name_map(input_dirs: list[Path], context: Context, uri_ext: boo
                 doc_id = data.get("@id", "")
                 if not doc_id:
                     suffix = ".md" if uri_ext else ""
-                    doc_id = f"{context.wiki_base}{md_file.stem}{suffix}"
+                    doc_id = f"{context.wiki_base}{_file_slug(md_file, input_dirs)}{suffix}"
 
                 name = data.get("name", "")
                 if name:
@@ -306,7 +321,8 @@ def _process_md_file(graph: Graph, md_file: Path, context: WikiConfig) -> None:
             parts = content.split("---", 2)
             if len(parts) > 2:
                 body = parts[2].strip()
-        graph += frontmatter_to_graph(data, context, file_id=md_file.stem, body=body, uri_ext=context.uri_ext)
+        file_id = _file_slug(md_file, context.input_dirs)
+        graph += frontmatter_to_graph(data, context, file_id=file_id, body=body, uri_ext=context.uri_ext)
 
     try:
         graph.parse(data=content, format="microdata")
@@ -343,7 +359,7 @@ def load_graph(context: WikiConfig, infer: bool = True) -> Graph:
     for input_dir in context.input_dirs:
         if not input_dir.exists():
             continue
-        for file_path in sorted(input_dir.iterdir()):
+        for file_path in sorted(input_dir.rglob("*")):
             if not file_path.is_file():
                 continue
             try:

@@ -11,7 +11,7 @@ import click
 from .config import WikiConfig as Context
 from .format import run_query, process_rdf_format
 from .render import render_markdown_files
-from .parser import normalize_all, normalize_frontmatter_str, frontmatter_from_path
+from .parser import frontmatter_from_path
 from .graph import load_graph, graph_stats
 from .audit import check_shacl_file, run_checks
 from .jqfilter import resolve_path
@@ -55,24 +55,22 @@ def _exit_check_results(conforms: bool, errors: list[str], warnings: list[str], 
 
 @main.command()
 @click.argument("file", required=False, type=click.Path(exists=True, path_type=Path))
-@click.option("--normalize", is_flag=True, help="Normalize frontmatter key casing and formatting.")
+@click.option("--fix", "fix", is_flag=True, help="Autofix hygiene issues (e.g. filename kebab-case) and update internal wikilinks.")
 @click.option("-v", "--verbose", is_flag=True, help="Show style/guideline warnings.")
 @click.option("--strict", is_flag=True, help="Elevate all warnings to errors and exit with code 1.")
 @click.pass_obj
-def check(config: Context, file: Optional[Path], normalize: bool, verbose: bool, strict: bool) -> None:
+def check(config: Context, file: Optional[Path], fix: bool, verbose: bool, strict: bool) -> None:
     """Run unified checks: strict SHACL validation + style audits."""
-    if normalize:
-        if file:
-            original = file.read_text(encoding="utf-8")
-            normalized = normalize_frontmatter_str(original)
-            if normalized != original:
-                file.write_text(normalized, encoding="utf-8")
-                if verbose:
-                    click.echo(f"Normalized frontmatter in {file.name}")
-        else:
-            results = normalize_all(config.input_dirs)
-            if verbose and results["fixed"] > 0:
-                click.echo(f"Normalized frontmatter in {results['fixed']} files.")
+    if fix:
+        # Autofix hygiene before validation so checks run on the final state.
+        from .audit import autofix_hygiene
+        res = autofix_hygiene(config)
+        if verbose and (res.get("renamed") or res.get("updated_wikilinks")):
+            renamed = res.get("renamed") or []
+            if renamed:
+                click.echo(f"Auto-fixed {len(renamed)} filenames.")
+            if res.get("updated_wikilinks"):
+                click.echo("Updated wikilinks to match renamed files.")
 
     if file:
         res = check_shacl_file(file, config, verbose=verbose)
@@ -90,8 +88,8 @@ def check(config: Context, file: Optional[Path], normalize: bool, verbose: bool,
                 errors.append(f"SHACL Validation Violation in {file.name}:\n{shacl_text}")
 
         # Style audits specifically for this file (delegates to audit.py)
-        from .audit import audit_filenames, audit_internal_links
-        file_filter = {file.stem}
+        from .audit import audit_filenames, audit_internal_links, file_slug_for_path
+        file_filter = {file_slug_for_path(config, file)}
         warnings.extend(audit_filenames(config, file_filter=file_filter))
         warnings.extend(audit_internal_links(config, file_filter=file_filter))
 
@@ -243,9 +241,9 @@ def build(config: Context, output_dir: Path, base_url: str, url_style: str, rend
             if len(parts) == 1:
                 file_path = page_output_dir / f"{parts[0]}.html"
             else:
-                section_dir = page_output_dir / parts[0]
-                section_dir.mkdir(exist_ok=True)
-                file_path = section_dir / f"{parts[1]}.html"
+                section_dir = page_output_dir.joinpath(*parts[:-1])
+                section_dir.mkdir(parents=True, exist_ok=True)
+                file_path = section_dir / f"{parts[-1]}.html"
         file_path.write_text(build_page_html(page, site, base_url=base_url, url_style=url_style), encoding="utf-8")
         if verbose:
             rel_path = file_path.relative_to(output_dir)
@@ -277,12 +275,13 @@ def export(context: Context, file: Optional[Path], output: Optional[Path], rdf_f
         }
     else:
         converted_list = []
+        from .audit import file_slug_for_path
         for input_dir in context.input_dirs:
             if input_dir.exists():
-                for md_file in sorted(input_dir.glob("*.md")):
+                for md_file in sorted(input_dir.rglob("*.md")):
                     data = frontmatter_from_path(md_file, content_predicate=context.content_predicate)
                     if data:
-                        processed_rdf = process_rdf_format(data, md_file.stem, context, rdf_format)
+                        processed_rdf = process_rdf_format(data, file_slug_for_path(context, md_file), context, rdf_format)
                         converted_list.append({
                             "name": md_file.name,
                             "rdf": processed_rdf
@@ -313,11 +312,83 @@ def export(context: Context, file: Optional[Path], output: Optional[Path], rdf_f
 @click.option("--port", default=8080, type=int, show_default=True, help="Port to serve on.")
 @click.option("--base-url", default="/wiki", show_default=True,
               help="URL prefix for wiki pages. Empty string for root-level URLs.")
+@click.option("--watch", is_flag=True, help="Watch files and auto-reload the browser on rebuild.")
 @click.pass_obj
-def serve(config: Context, host: str, port: int, base_url: str) -> None:
+def serve(config: Context, host: str, port: int, base_url: str, watch: bool) -> None:
     """Start a local HTTP server for browsing the wiki."""
     from .serve import run_server
-    run_server(config.input_dirs, host=host, port=port, base_url=base_url.rstrip("/"))
+    run_server(config.input_dirs, host=host, port=port, base_url=base_url.rstrip("/"), watch=watch)
+
+
+@main.command()
+@click.option("--force", is_flag=True, help="Overwrite existing scaffold files if present.")
+def init(force: bool) -> None:
+    """Interactively scaffold a new wiki workspace in the current directory."""
+    import yaml
+
+    cwd = Path.cwd()
+    config_path = cwd / "wiki.yaml"
+    wiki_dir = cwd / "wiki"
+
+    if not force:
+        if config_path.exists():
+            click.echo("Error: wiki.yaml already exists. Use --force to overwrite.", err=True)
+            sys.exit(1)
+        if wiki_dir.exists() and any(wiki_dir.iterdir()):
+            click.echo("Error: wiki/ is not empty. Use --force to overwrite.", err=True)
+            sys.exit(1)
+
+    wiki_base = click.prompt("Custom base URI prefix", default="https://wiki.example.org/")
+    wiki_base = str(wiki_base).rstrip("/") + "/"
+
+    add_foaf = click.confirm("Include foaf prefix?", default=True)
+    add_dc = click.confirm("Include dc/dcterms prefixes?", default=True)
+
+    context_map: dict[str, str] = {
+        "schema": "https://schema.org/",
+        "wiki": wiki_base,
+    }
+    if add_foaf:
+        context_map["foaf"] = "http://xmlns.com/foaf/0.1/"
+    if add_dc:
+        context_map["dc"] = "http://purl.org/dc/elements/1.1/"
+        context_map["dcterms"] = "http://purl.org/dc/terms/"
+
+    cfg = {
+        "inputDirs": ["wiki"],
+        "wikiBase": wiki_base,
+        "check": {"filenameStyle": "warning", "internalLinks": "warning"},
+        "context": context_map,
+    }
+
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    (wiki_dir / "index.md").write_text(
+        "---\n"
+        "id: wiki:index\n"
+        "type: schema:CreativeWork\n"
+        "name: Wiki index\n"
+        "---\n\n"
+        "# Wiki index\n\n"
+        "Welcome to your wiki.\n",
+        encoding="utf-8",
+    )
+    (wiki_dir / "person-shape.md").write_text(
+        "---\n"
+        "id: wiki:PersonShape\n"
+        "type: sh:NodeShape\n"
+        "sh:targetClass: schema:Person\n"
+        "sh:property:\n"
+        "  sh:path: schema:name\n"
+        "  sh:datatype: xsd:string\n"
+        "  sh:minCount: 1\n"
+        "---\n\n"
+        "# Person shape\n\n"
+        "A minimal starter SHACL shape.\n",
+        encoding="utf-8",
+    )
+
+    config_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    click.echo("Initialized wiki.yaml and wiki/ starter files.")
 
 
 if __name__ == "__main__":

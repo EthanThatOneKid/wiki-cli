@@ -49,8 +49,8 @@ wiki check
 # Check a single file specifically
 wiki check wiki/gregory.md
 
-# Normalize frontmatter key casing and formatting
-wiki check --normalize
+# Autofix hygiene issues (rename non-kebab-case files + update wikilinks)
+wiki check --fix
 
 # Run with verbose output to show style/guideline warnings
 wiki check -v
@@ -265,6 +265,16 @@ wiki serve
 
 # Custom host and port
 wiki serve --host 0.0.0.0 --port 3000
+
+# Watch wiki files and auto-reload the browser on rebuild
+wiki serve --watch
+```
+
+### `init`
+Interactively scaffold a new wiki workspace (`wiki.yaml` + starter `wiki/` content) in the current directory.
+
+```bash
+wiki init
 ```
 
 ### `export`
