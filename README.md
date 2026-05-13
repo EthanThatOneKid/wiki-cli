@@ -4,7 +4,7 @@ An elegant, pure, and idiomatic Python command-line interface for managing a sem
 
 ## Key features
 - **Modern Packaging**: Configured cleanly with standard `pyproject.toml` optimized for `uv` or `pip`.
-- **Pure Python CLI**: Seven subcommands — `create`, `check`, `query`, `render`, `build`, `serve`, `export`.
+- **Pure Python CLI**: Six subcommands — `check`, `query`, `render`, `build`, `serve`, `export`.
 - **Flexible Frontmatter Parsing**: Supports YAML and JSON frontmatter blocks with standard triple-dash `---` boundaries.
 - **RDF Context Support** Supports JSON-LD `@context` style namespace, prefix mappings, and settings.
 - **Deductive Reasoning**: Full OWL-RL deductive reasoning expansion powered by `owlrl`.
@@ -34,26 +34,6 @@ Once installed globally, the `wiki` command is available in any directory that h
 
 ## Subcommand guide
 
-### `create`
-Scaffold a new markdown **Document** in your wiki directory. It automatically normalizes the input into a lowercase kebab-case filename and inserts a pre-populated valid **Frontmatter** template containing standard schema mappings.
-
-```bash
-# Scaffold a new document
-wiki create "My New Page"
-
-# Scaffold a new document with verbose output
-wiki create "My New Page" -v
-```
-
-The generated file looks like:
-
-```yaml
----
-id: wiki:my-new-page
-type: schema:WebPage
-name: My New Page
----
-```
 
 ### `check`
 Perform unified validations of your wiki, including strict SHACL schema validations and soft style/hygiene audits (kebab-case filenames, broken internal wikilinks). Under the "silence is golden" philosophy, `check` exits silently with code 0 on success.
@@ -209,39 +189,62 @@ _site/
 Create `.github/workflows/deploy-pages.yml` in your wiki repository:
 
 ```yaml
-name: Deploy wiki to Pages
+name: Deploy Wiki to Pages
+
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
+
 permissions:
   contents: read
   pages: write
   id-token: write
+
 concurrency:
-  group: pages
+  group: "pages"
   cancel-in-progress: false
+
 jobs:
-  build:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install wiki-cli
-      - run: pip install wiki-cli
-      - run: wiki build --output-dir _site
-      - uses: actions/upload-pages-artifact@v3
-      - uses: actions/deploy-pages@v4
+      
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      
+      - name: Install Dependencies
+        run: uv sync
+      
+      - name: Run Docs Wiki Style and SHACL Audits
+        run: uv run wiki -c docs/wiki.json check --strict -v
+
+      - name: Build Static Site
+        run: uv run wiki -c docs/wiki.json build --output-dir _site --base-url /wiki-cli
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "_site/wiki-cli"
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 ```
 
 Then enable **GitHub Pages > Source: GitHub Actions** in your repo settings.
-
-For project sites (e.g. `username.github.io/my-wiki`), update the build step:
-```yaml
-      - run: wiki build --base-url /my-wiki/wiki --output-dir _site
-```
 
 ### `serve`
 Start a local development HTTP server that renders wiki markdown files as HTML (wikilinks, backlinks, ToC included). Uses the same rendering engine as `build` but serves pages on-the-fly without writing files to disk.
@@ -269,13 +272,13 @@ wiki export
 wiki export wiki/gregory.md
 
 # Export as expanded JSON-LD
-wiki export -c . wiki/rdf.md -r json-ld
+wiki export wiki/rdf.md -f json-ld
 
 # Export in other RDF formats (turtle, xml, n3, nt, trig, nquads)
-wiki export -c . wiki/rdf.md -r turtle
+wiki export wiki/rdf.md -f turtle
 
 # Write to a file
-wiki export -r json-ld -o wiki-export.json
+wiki export -f json-ld -o wiki-export.json
 ```
 
 
@@ -286,9 +289,7 @@ These flags can be used on any subcommand:
 | Option | Description |
 |---|---|
 | `-c, --config <path>` | Path to `wiki.yaml` config file or directory containing one (default: `.`) |
-| `--wiki-dir <path>` | Override the wiki markdown directory |
-| `--import-dir <path>` | Additional directory of RDF data/ontologies to load (can be repeated) |
-| `--raw-dir <path>` | Directory containing raw markdown files |
+| `--input-dir <path>` | Directory containing wiki markdown files or RDF data files (can be repeated) |
 
 ### Printing and piping
 Following the Unix philosophy of pipes and filters, `wiki` works seamlessly with native system utilities. Outputs from query execution or document inspection can be easily formatted and spooled directly to your printer.
@@ -322,7 +323,6 @@ While the Wiki CLI operates as a standalone tool, it pairs naturally with Obsidi
 Recommended workflows:
 * **Check on save**: Bind `wiki check` to execute whenever a file is modified to receive instant feedback on SHACL validations and formatting.
 * **Trigger re-rendering**: Map a hotkey or command palette item to `wiki render` to automatically update all dynamic SPARQL blocks in the vault.
-* **Create new documents**: Map a hotkey or command palette item to `wiki create` to automatically generate a new markdown file with pre-populated frontmatter.
 
 ### Declarative modeling & full-text SPARQL
 
