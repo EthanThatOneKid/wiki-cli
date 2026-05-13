@@ -417,8 +417,8 @@ The CLI automatically detects and loads configurations from `wiki.yaml`, `wiki.y
 
 ```yaml
 # wiki.yaml
-wikiDir: wiki
-shapesDir: shapes
+inputDirs:
+  - wiki
 contentPredicate: schema:text # Opt-in full-text markdown body auto-injection
 
 check:

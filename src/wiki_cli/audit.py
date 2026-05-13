@@ -114,17 +114,17 @@ def audit_filenames(config: WikiConfig, file_filter: set[str] | None = None) -> 
     Returns a list of warnings.
     """
     warnings = []
-    if not config.wiki_dir.exists():
-        return warnings
-
-    for md_file in sorted(config.wiki_dir.glob("*.md")):
-        stem = md_file.stem
-        if file_filter is not None and stem not in file_filter:
+    for input_dir in config.input_dirs:
+        if not input_dir.exists():
             continue
-        if not FILENAME_REGEX.match(stem):
-            warnings.append(
-                f"Filename '{md_file.name}' is not lowercase kebab-case."
-            )
+        for md_file in sorted(input_dir.glob("*.md")):
+            stem = md_file.stem
+            if file_filter is not None and stem not in file_filter:
+                continue
+            if not FILENAME_REGEX.match(stem):
+                warnings.append(
+                    f"Filename '{md_file.name}' is not lowercase kebab-case."
+                )
     return warnings
 
 
@@ -136,37 +136,41 @@ def audit_internal_links(config: WikiConfig, file_filter: set[str] | None = None
     Returns a list of warnings.
     """
     warnings = []
-    if not config.wiki_dir.exists():
-        return warnings
 
-    existing_files = {md_file.stem for md_file in config.wiki_dir.glob("*.md")}
+    existing_files: set[str] = set()
+    for input_dir in config.input_dirs:
+        if input_dir.exists():
+            existing_files.update(md_file.stem for md_file in input_dir.glob("*.md"))
 
-    for md_file in sorted(config.wiki_dir.glob("*.md")):
-        if file_filter is not None and md_file.stem not in file_filter:
+    for input_dir in config.input_dirs:
+        if not input_dir.exists():
             continue
-        try:
-            content = md_file.read_text(encoding="utf-8")
-            
-            # 1. Audit WikiLinks
-            wikilinks = WIKILINK_REGEX.findall(content)
-            for link in wikilinks:
-                slug = link.strip().lower().replace(" ", "-")
-                if slug not in existing_files:
-                    warnings.append(
-                        f"In {md_file.name}: Broken WikiLink [[{link}]] points to non-existent document."
-                    )
-            
-            # 2. Audit standard Markdown links
-            md_links = MARKDOWN_LINK_REGEX.findall(content)
-            for target in md_links:
-                decoded_target = unquote(target.split("#")[0].split("?")[0])
-                slug = Path(decoded_target).stem.strip().lower().replace(" ", "-")
-                if slug and slug not in existing_files:
-                    warnings.append(
-                        f"In {md_file.name}: Broken Markdown link [{target}] points to non-existent document."
-                    )
-        except Exception as e:
-            warnings.append(f"Failed to read {md_file.name} for link audit: {e}")
+        for md_file in sorted(input_dir.glob("*.md")):
+            if file_filter is not None and md_file.stem not in file_filter:
+                continue
+            try:
+                content = md_file.read_text(encoding="utf-8")
+                
+                # 1. Audit WikiLinks
+                wikilinks = WIKILINK_REGEX.findall(content)
+                for link in wikilinks:
+                    slug = link.strip().lower().replace(" ", "-")
+                    if slug not in existing_files:
+                        warnings.append(
+                            f"In {md_file.name}: Broken WikiLink [[{link}]] points to non-existent document."
+                        )
+                
+                # 2. Audit standard Markdown links
+                md_links = MARKDOWN_LINK_REGEX.findall(content)
+                for target in md_links:
+                    decoded_target = unquote(target.split("#")[0].split("?")[0])
+                    slug = Path(decoded_target).stem.strip().lower().replace(" ", "-")
+                    if slug and slug not in existing_files:
+                        warnings.append(
+                            f"In {md_file.name}: Broken Markdown link [{target}] points to non-existent document."
+                        )
+            except Exception as e:
+                warnings.append(f"Failed to read {md_file.name} for link audit: {e}")
 
     return warnings
 

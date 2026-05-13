@@ -19,59 +19,16 @@ from .format_choice import FormatChoice
 
 
 @click.group()
-@click.option("--wiki-dir", default=None, help="Directory containing wiki markdown files.")
-@click.option("--import-dir", "cli_import_dirs", multiple=True, help="Additional directory of RDF data/ontologies to load into the central pool.")
-@click.option("--raw-dir", default=None, help="Directory containing raw markdown files.")
+@click.option("--input-dir", "cli_input_dirs", multiple=True, default=None, help="Directory containing wiki markdown files or RDF data files (repeatable).")
 @click.option("-c", "--config", "config_path", default=".", help="Path to wiki.yaml or directory containing wiki.yaml/wiki.yml/wiki.json (default: current directory).")
 @click.pass_context
-def main(ctx: click.Context, wiki_dir: Optional[str], cli_import_dirs: tuple[str, ...], raw_dir: Optional[str], config_path: str) -> None:
+def main(ctx: click.Context, cli_input_dirs: tuple[str, ...] | None, config_path: str) -> None:
     """Query, validate, and manage your semantic LLM wiki."""
     config = Context.load(Path(config_path))
-    if wiki_dir:
-        config.wiki_dir = Path(wiki_dir)
-    if cli_import_dirs:
-        for d in cli_import_dirs:
-            config.import_dirs.append(Path(d))
-    if raw_dir:
-        config.raw_dir = Path(raw_dir)
-    
-    # Deduplicate while preserving order
-    seen = set()
-    unique_imports = []
-    for d in config.import_dirs:
-        if d not in seen:
-            seen.add(d)
-            unique_imports.append(d)
-    config.import_dirs = unique_imports
+    if cli_input_dirs:
+        config.input_dirs = [Path(d) for d in cli_input_dirs]
 
     ctx.obj = config
-
-
-@main.command()
-@click.argument("title")
-@click.option("-v", "--verbose", is_flag=True, help="Print summary of created files.")
-@click.pass_obj
-def create(config: Context, title: str, verbose: bool) -> None:
-    """Create a new wiki document with standardized frontmatter."""
-    from .graph import kebab_case
-    slug = kebab_case(title)
-    file_path = config.wiki_dir / f"{slug}.md"
-    if file_path.exists():
-        click.echo(f"Error: Document {file_path.name} already exists.", err=True)
-        sys.exit(1)
-    
-    content = f"""---
-id: wiki:{slug}
-type: schema:WebPage
-name: {title}
----
-
-# {title}
-"""
-    config.wiki_dir.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(content, encoding="utf-8")
-    if verbose:
-        click.echo(f"Created document {file_path.name}")
 
 
 def _exit_check_results(conforms: bool, errors: list[str], warnings: list[str], verbose: bool) -> None:
@@ -113,7 +70,7 @@ def check(config: Context, file: Optional[Path], normalize: bool, verbose: bool,
                 if verbose:
                     click.echo(f"Normalized frontmatter in {file.name}")
         else:
-            results = normalize_all(config.wiki_dir)
+            results = normalize_all(config.input_dirs)
             if verbose and results["fixed"] > 0:
                 click.echo(f"Normalized frontmatter in {results['fixed']} files.")
 
@@ -229,12 +186,13 @@ def build(config: Context, output_dir: Path, base_url: str, url_style: str, verb
     """Build static HTML site from wiki markdown files."""
     from .site import build_site, build_index_html, build_page_html
 
-    if not config.wiki_dir.exists():
-        click.echo(f"Error: wiki directory '{config.wiki_dir}' does not exist.", err=True)
+    if not any(d.exists() for d in config.input_dirs):
+        dirs_str = ", ".join(str(d) for d in config.input_dirs)
+        click.echo(f"Error: none of the input directories exist ({dirs_str}).", err=True)
         sys.exit(1)
 
     base_url = base_url.rstrip("/")
-    site = build_site(config.wiki_dir, base_url=base_url, url_style=url_style)
+    site = build_site(config.input_dirs, base_url=base_url, url_style=url_style)
     output_dir = output_dir.resolve()
 
     page_output_dir = output_dir / base_url.strip("/") if base_url else output_dir
@@ -300,15 +258,16 @@ def export(context: Context, file: Optional[Path], output: Optional[Path], rdf_f
         }
     else:
         converted_list = []
-        if context.wiki_dir.exists():
-            for md_file in sorted(context.wiki_dir.glob("*.md")):
-                data = frontmatter_from_path(md_file, content_predicate=context.content_predicate)
-                if data:
-                    processed_rdf = process_rdf_format(data, md_file.stem, context, rdf_format)
-                    converted_list.append({
-                        "name": md_file.name,
-                        "rdf": processed_rdf
-                    })
+        for input_dir in context.input_dirs:
+            if input_dir.exists():
+                for md_file in sorted(input_dir.glob("*.md")):
+                    data = frontmatter_from_path(md_file, content_predicate=context.content_predicate)
+                    if data:
+                        processed_rdf = process_rdf_format(data, md_file.stem, context, rdf_format)
+                        converted_list.append({
+                            "name": md_file.name,
+                            "rdf": processed_rdf
+                        })
         result_payload = converted_list
 
     # Standard serialization formats (non-JSON wrappers) get raw RDF output
@@ -339,9 +298,8 @@ def export(context: Context, file: Optional[Path], output: Optional[Path], rdf_f
 def serve(config: Context, host: str, port: int, base_url: str) -> None:
     """Start a local HTTP server for browsing the wiki."""
     from .serve import run_server
-    run_server(config.wiki_dir, host=host, port=port, base_url=base_url.rstrip("/"))
+    run_server(config.input_dirs, host=host, port=port, base_url=base_url.rstrip("/"))
 
 
 if __name__ == "__main__":
     main()
-

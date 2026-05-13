@@ -13,51 +13,14 @@ from wiki_cli.cli import main
 
 
 class TestCLI(unittest.TestCase):
-    def test_cli_create_scaffolds_file(self) -> None:
-        """Test that wiki create scaffolds a new document with standardized frontmatter."""
-        runner = CliRunner()
-        with TemporaryDirectory() as tmpdir:
-            # Run "wiki create" pointing to our temporary directory
-            result = runner.invoke(
-                main,
-                [
-                    "--wiki-dir", tmpdir,
-                    "create", "My New Document",
-                    "-v"
-                ]
-            )
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("Created document my-new-document.md", result.output)
-            
-            # Verify file exists and has correct content
-            file_path = Path(tmpdir) / "my-new-document.md"
-            self.assertTrue(file_path.exists())
-            
-            content = file_path.read_text(encoding="utf-8")
-            self.assertIn("id: wiki:my-new-document", content)
-            self.assertIn("type: schema:WebPage", content)
-            self.assertIn("name: My New Document", content)
-            self.assertIn("# My New Document", content)
 
-    def test_cli_create_duplicate_fails(self) -> None:
-        """Test that wiki create fails if the document already exists."""
-        runner = CliRunner()
-        with TemporaryDirectory() as tmpdir:
-            # Create once
-            result1 = runner.invoke(main, ["--wiki-dir", tmpdir, "create", "Duplicate"])
-            self.assertEqual(result1.exit_code, 0)
-            
-            # Create twice
-            result2 = runner.invoke(main, ["--wiki-dir", tmpdir, "create", "Duplicate"])
-            self.assertEqual(result2.exit_code, 1)
-            self.assertIn("Error: Document duplicate.md already exists", result2.output)
 
     def test_cli_check_succeeds_and_fails(self) -> None:
         """Test that wiki check succeeds on valid documents and fails on violations."""
         runner = CliRunner()
         with TemporaryDirectory() as tmpdir:
             # 1. Running check on empty directory conforms silently (success)
-            result = runner.invoke(main, ["--wiki-dir", tmpdir, "check"])
+            result = runner.invoke(main, ["--input-dir", tmpdir, "check"])
             self.assertEqual(result.exit_code, 0)
             self.assertEqual(result.output, "")
             
@@ -70,7 +33,7 @@ name: Invalid Page
 ---
 """, encoding="utf-8")
             
-            result_strict = runner.invoke(main, ["--wiki-dir", tmpdir, "check", "--strict", "-v"])
+            result_strict = runner.invoke(main, ["--input-dir", tmpdir, "check", "--strict", "-v"])
             self.assertEqual(result_strict.exit_code, 1)
             self.assertIn("Errors:", result_strict.output)
             self.assertIn("is not lowercase kebab-case", result_strict.output)
@@ -89,7 +52,7 @@ type: Person
 """, encoding="utf-8")
 
             # Normalize single file (given_name -> givenName)
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "check", str(file_path), "--normalize"])
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "check", str(file_path), "--normalize"])
             self.assertEqual(result.exit_code, 0)
             content = file_path.read_text(encoding="utf-8")
             self.assertIn("givenName: Alice", content)
@@ -102,7 +65,7 @@ family_name: Bob
 ---
 # Bob
 """, encoding="utf-8")
-            result_bulk = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "check", "--normalize", "-v"])
+            result_bulk = runner.invoke(main, ["--input-dir", str(wiki_dir), "check", "--normalize", "-v"])
             self.assertEqual(result_bulk.exit_code, 0)
             self.assertIn("Normalized frontmatter in", result_bulk.output)
 
@@ -120,7 +83,7 @@ name: Valid File
 """, encoding="utf-8")
             
             # Conforming single file check
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "check", str(valid_file)])
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "check", str(valid_file)])
             self.assertEqual(result.exit_code, 0)
             
             # Non-conforming single file check
@@ -131,7 +94,7 @@ type: schema:WebPage
 name: Invalid Name
 ---
 """, encoding="utf-8")
-            result_invalid = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "check", str(invalid_file), "--strict"])
+            result_invalid = runner.invoke(main, ["--input-dir", str(wiki_dir), "check", str(invalid_file), "--strict"])
             self.assertEqual(result_invalid.exit_code, 1)
 
     def test_cli_query_formats(self) -> None:
@@ -150,18 +113,18 @@ name: Alice
             query_str = "SELECT ?name WHERE { ?s <https://schema.org/name> ?name }"
             
             # Table format
-            res_table = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "--no-inference", query_str])
+            res_table = runner.invoke(main, ["--input-dir", str(wiki_dir), "query", "--no-inference", query_str])
             self.assertEqual(res_table.exit_code, 0)
             self.assertIn("Alice", res_table.output)
             
             # JSON format
-            res_json = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "-f", "json", "--no-inference", query_str])
+            res_json = runner.invoke(main, ["--input-dir", str(wiki_dir), "query", "-f", "json", "--no-inference", query_str])
             self.assertEqual(res_json.exit_code, 0)
             parsed = json.loads(res_json.output)
             self.assertIn("results", parsed)
             
             # Error mode - invalid SPARQL syntax
-            res_err = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "INVALID QUERY"])
+            res_err = runner.invoke(main, ["--input-dir", str(wiki_dir), "query", "INVALID QUERY"])
             self.assertEqual(res_err.exit_code, 1)
 
     def test_cli_query_jq_filter(self) -> None:
@@ -179,7 +142,7 @@ name: Alice
 
             # --jq auto-switches to JSON and extracts the value
             result = runner.invoke(main, [
-                "--wiki-dir", str(wiki_dir),
+                "--input-dir", str(wiki_dir),
                 "query", "--no-inference", query_str,
                 "--jq", "results.bindings[].name.value"
             ])
@@ -188,7 +151,7 @@ name: Alice
 
             # --jq with no matches produces no output
             result_empty = runner.invoke(main, [
-                "--wiki-dir", str(wiki_dir),
+                "--input-dir", str(wiki_dir),
                 "query", "--no-inference", query_str,
                 "--jq", "results.nonexistent"
             ])
@@ -209,7 +172,7 @@ name: Alice
             out_file = Path(tmpdir) / "results.json"
 
             result = runner.invoke(main, [
-                "--wiki-dir", str(wiki_dir),
+                "--input-dir", str(wiki_dir),
                 "query", "--no-inference", query_str,
                 "-f", "json", "-o", str(out_file)
             ])
@@ -232,28 +195,28 @@ name: Alice
             query_str = "SELECT ?name WHERE { ?s <https://schema.org/name> ?name }"
 
             # CSV
-            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "--no-inference", "-f", "csv", query_str])
+            res = runner.invoke(main, ["--input-dir", str(wiki_dir), "query", "--no-inference", "-f", "csv", query_str])
             self.assertEqual(res.exit_code, 0)
             self.assertIn("Alice", res.output)
 
             # TSV (previously broken — now works with inline formatter)
-            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "--no-inference", "-f", "tsv", query_str])
+            res = runner.invoke(main, ["--input-dir", str(wiki_dir), "query", "--no-inference", "-f", "tsv", query_str])
             self.assertEqual(res.exit_code, 0)
             self.assertIn("Alice", res.output)
 
             # Markdown table
-            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "--no-inference", "-f", "markdown", query_str])
+            res = runner.invoke(main, ["--input-dir", str(wiki_dir), "query", "--no-inference", "-f", "markdown", query_str])
             self.assertEqual(res.exit_code, 0)
             self.assertIn("Alice", res.output)
             self.assertIn("|", res.output)
 
             # MIME alias — "text/csv" resolves to "csv"
-            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "--no-inference", "-f", "text/csv", query_str])
+            res = runner.invoke(main, ["--input-dir", str(wiki_dir), "query", "--no-inference", "-f", "text/csv", query_str])
             self.assertEqual(res.exit_code, 0)
             self.assertIn("Alice", res.output)
 
             # Case-insensitive — "JSON" accepted via case_sensitive=False
-            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "--no-inference", "-f", "JSON", query_str])
+            res = runner.invoke(main, ["--input-dir", str(wiki_dir), "query", "--no-inference", "-f", "JSON", query_str])
             self.assertEqual(res.exit_code, 0)
             self.assertIn("Alice", res.output)
 
@@ -277,7 +240,7 @@ SELECT ?name WHERE { ?s <https://schema.org/name> ?name }
             file_path = wiki_dir / "gregory.md"
             file_path.write_text(source_content, encoding="utf-8")
             
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "render", "--no-inference", "-v"])
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "render", "--no-inference", "-v"])
             self.assertEqual(result.exit_code, 0)
             
             # Verify the SPARQL block was rendered and updated inline
@@ -299,14 +262,14 @@ name: Gregory
 """, encoding="utf-8")
             
             # Bulk export (raw default)
-            result_bulk = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export"])
+            result_bulk = runner.invoke(main, ["--input-dir", str(wiki_dir), "export"])
             self.assertEqual(result_bulk.exit_code, 0)
             data_bulk = json.loads(result_bulk.output)
             self.assertEqual(len(data_bulk), 1)
             self.assertEqual(data_bulk[0]["rdf"]["name"], "Gregory")
             
             # Single file export (raw default)
-            result_single = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(valid_file)])
+            result_single = runner.invoke(main, ["--input-dir", str(wiki_dir), "export", str(valid_file)])
             self.assertEqual(result_single.exit_code, 0)
             data_single = json.loads(result_single.output)
             self.assertEqual(data_single["rdf"]["name"], "Gregory")
@@ -314,7 +277,7 @@ name: Gregory
             # Single file export failure (no frontmatter)
             no_fm_file = wiki_dir / "no-fm.md"
             no_fm_file.write_text("Hello", encoding="utf-8")
-            result_fail = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(no_fm_file)])
+            result_fail = runner.invoke(main, ["--input-dir", str(wiki_dir), "export", str(no_fm_file)])
             self.assertEqual(result_fail.exit_code, 1)
     
     def test_cli_export_formats(self) -> None:
@@ -330,25 +293,25 @@ name: Alice
 """, encoding="utf-8")
             
             # json-ld format returns expanded JSON-LD
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "json-ld"])
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "export", str(page), "--format", "json-ld"])
             self.assertEqual(result.exit_code, 0)
             data = json.loads(result.output)
             self.assertIsInstance(data["rdf"], list)
             self.assertIn("@id", data["rdf"][0])
             
             # turtle format returns raw serialized turtle (no JSON wrapper)
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "turtle"])
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "export", str(page), "--format", "turtle"])
             self.assertEqual(result.exit_code, 0)
             self.assertIn("schema:name", result.output)  # turtle has prefix:name
             self.assertIn("Alice", result.output)
             
             # xml format returns raw serialized RDF/XML
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "xml"])
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "export", str(page), "--format", "xml"])
             self.assertEqual(result.exit_code, 0)
             self.assertIn("rdf:Description", result.output)
             
             # nt format returns raw N-Triples
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "nt"])
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "export", str(page), "--format", "nt"])
             self.assertEqual(result.exit_code, 0)
             self.assertIn("Alice", result.output)
             self.assertIn(".", result.output.strip()[-1])  # N-Triples ends with dot
@@ -366,7 +329,7 @@ name: Alice
 
             out_file = Path(tmpdir) / "export.json"
             result = runner.invoke(main, [
-                "--wiki-dir", str(wiki_dir),
+                "--input-dir", str(wiki_dir),
                 "export", str(page),
                 "-o", str(out_file)
             ])
@@ -388,7 +351,7 @@ name: Alice
 ---""", encoding="utf-8")
 
             result = runner.invoke(main, [
-                "--wiki-dir", str(wiki_dir),
+                "--input-dir", str(wiki_dir),
                 "export", str(page),
                 "-f", "turtle"
             ])
@@ -408,22 +371,22 @@ name: Alice
 ---""", encoding="utf-8")
 
             # N3
-            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "n3"])
+            res = runner.invoke(main, ["--input-dir", str(wiki_dir), "export", str(page), "--format", "n3"])
             self.assertEqual(res.exit_code, 0)
             self.assertIn("Alice", res.output)
 
             # Trig
-            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "trig"])
+            res = runner.invoke(main, ["--input-dir", str(wiki_dir), "export", str(page), "--format", "trig"])
             self.assertEqual(res.exit_code, 0)
             self.assertIn("Alice", res.output)
 
             # MIME alias — "text/n3" resolves to "n3"
-            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "text/n3"])
+            res = runner.invoke(main, ["--input-dir", str(wiki_dir), "export", str(page), "--format", "text/n3"])
             self.assertEqual(res.exit_code, 0)
             self.assertIn("Alice", res.output)
 
             # Case-insensitive — "TURTLE" accepted
-            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "TURTLE"])
+            res = runner.invoke(main, ["--input-dir", str(wiki_dir), "export", str(page), "--format", "TURTLE"])
             self.assertEqual(res.exit_code, 0)
             self.assertIn("Alice", res.output)
 
@@ -439,7 +402,7 @@ id: wiki:doc
 name: TestDoc
 ---""", encoding="utf-8")
 
-            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--format", "nquads"])
+            res = runner.invoke(main, ["--input-dir", str(wiki_dir), "export", str(page), "--format", "nquads"])
             self.assertEqual(res.exit_code, 0)
             # Raw N-Quads output: angle-bracketed URIs, not JSON
             self.assertNotIn("{", res.output, msg="Raw nquads output should not be JSON")
@@ -474,7 +437,7 @@ Bob was born.""", encoding="utf-8")
 
             output_dir = Path(tmpdir) / "_site"
 
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "--output-dir", str(output_dir), "-v"])
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "build", "--output-dir", str(output_dir), "-v"])
             self.assertEqual(result.exit_code, 0)
             self.assertIn("Built", result.output)
 
@@ -522,7 +485,7 @@ Bob was born.""", encoding="utf-8")
 
             output_dir = Path(tmpdir) / "_site"
 
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "--output-dir", str(output_dir), "--url-style", "dir", "-v"])
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "build", "--output-dir", str(output_dir), "--url-style", "dir", "-v"])
             self.assertEqual(result.exit_code, 0)
             self.assertIn("Built", result.output)
 
@@ -563,7 +526,7 @@ Hello from [[alice]].""", encoding="utf-8")
 
             output_dir = Path(tmpdir) / "_site"
 
-            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "--output-dir", str(output_dir), "--base-url", "/my-wiki"])
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "build", "--output-dir", str(output_dir), "--base-url", "/my-wiki"])
             self.assertEqual(result.exit_code, 0)
 
             alice_content = (output_dir / "my-wiki" / "alice.html").read_text()
@@ -576,12 +539,12 @@ Hello from [[alice]].""", encoding="utf-8")
     def test_cli_build_no_wiki_dir(self) -> None:
         """Test that wiki build errors when wiki directory missing."""
         runner = CliRunner()
-        result = runner.invoke(main, ["--wiki-dir", "nonexistent", "build"])
+        result = runner.invoke(main, ["--input-dir", "nonexistent", "build"])
         self.assertEqual(result.exit_code, 1)
         self.assertIn("Error", result.output)
 
     def test_global_raw_dir_flag(self) -> None:
-        """Test --raw-dir: loads raw markdown files into the graph."""
+        """Test --input-dir with multiple directories: loads files from both."""
         runner = CliRunner()
         with TemporaryDirectory() as tmpdir:
             config_dir = Path(tmpdir)
@@ -589,8 +552,9 @@ Hello from [[alice]].""", encoding="utf-8")
             wiki_dir.mkdir()
             raw_dir = config_dir / "raw"
             raw_dir.mkdir()
-            (config_dir / "wiki.yaml").write_text("""wikiDir: wiki
-rawDir: raw
+            (config_dir / "wiki.yaml").write_text("""inputDirs:
+  - wiki
+  - raw
 """, encoding="utf-8")
             (wiki_dir / "doc.md").write_text("""---
 type: schema:WebPage
@@ -614,7 +578,7 @@ name: FromRaw
             self.assertIn("FromRaw", result.output)
 
     def test_global_import_dir_flag(self) -> None:
-        """Test --import-dir: loads external .ttl into the graph."""
+        """Test repeatable --input-dir: loads external .ttl into the graph."""
         runner = CliRunner()
         with TemporaryDirectory() as tmpdir:
             wiki_dir = Path(tmpdir) / "wiki"
@@ -631,8 +595,8 @@ ex:foo ex:bar "from-import-dir" .
 """, encoding="utf-8")
 
             result = runner.invoke(main, [
-                "--wiki-dir", str(wiki_dir),
-                "--import-dir", str(imports_dir),
+                "--input-dir", str(wiki_dir),
+                "--input-dir", str(imports_dir),
                 "query", "--no-inference",
                 "SELECT ?o WHERE { ?s <http://example.org/bar> ?o }",
                 "-f", "json",
@@ -728,7 +692,7 @@ type: schema:WebPage
 id: wiki:doc
 name: ConfigTest
 ---""", encoding="utf-8")
-            (config_dir / "wiki.yaml").write_text("wikiDir: ../wiki", encoding="utf-8")
+            (config_dir / "wiki.yaml").write_text("inputDirs: ../wiki", encoding="utf-8")
 
             result = runner.invoke(main, [
                 "-c", str(config_dir),

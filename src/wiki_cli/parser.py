@@ -148,21 +148,25 @@ def normalize_frontmatter_str(content: str, standardize_keys: bool = True) -> st
     return f"---\n{new_fm.strip()}\n---" + (parts[2] if len(parts) > 2 else "")
 
 
-def normalize_all(wiki_dir: Path, standardize_keys: bool = True, dry_run: bool = False) -> dict[str, Any]:
-    """Normalize frontmatter across all markdown files in wiki_dir."""
+def normalize_all(input_dirs: Path | list[Path], standardize_keys: bool = True, dry_run: bool = False) -> dict[str, Any]:
+    """Normalize frontmatter across all markdown files in input_dirs."""
+    dirs = [input_dirs] if isinstance(input_dirs, Path) else input_dirs
     results = {"fixed": 0, "skipped": 0, "errors": []}
 
-    for md_file in sorted(wiki_dir.glob("*.md")):
-        try:
-            original = md_file.read_text(encoding="utf-8")
-            normalized = normalize_frontmatter_str(original, standardize_keys=standardize_keys)
-            if normalized != original:
-                results["fixed"] += 1
-                if not dry_run:
-                    md_file.write_text(normalized, encoding="utf-8")
-            else:
-                results["skipped"] += 1
-        except Exception as e:
-            results["errors"].append({"file": md_file.name, "error": str(e)})
+    for input_dir in dirs:
+        if not input_dir.exists():
+            continue
+        for md_file in sorted(input_dir.glob("*.md")):
+            try:
+                original = md_file.read_text(encoding="utf-8")
+                normalized = normalize_frontmatter_str(original, standardize_keys=standardize_keys)
+                if normalized != original:
+                    results["fixed"] += 1
+                    if not dry_run:
+                        md_file.write_text(normalized, encoding="utf-8")
+                else:
+                    results["skipped"] += 1
+            except Exception as e:
+                results["errors"].append({"file": md_file.name, "error": str(e)})
 
     return results

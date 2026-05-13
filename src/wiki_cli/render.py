@@ -25,31 +25,32 @@ def render_markdown_files(context: Any, graph: Any) -> tuple[int, int]:
     """
     success_count = 0
     error_count = 0
-    if not context.wiki_dir.exists():
-        return (0, 0)
 
-    for md_file in context.wiki_dir.glob("*.md"):
-        content = md_file.read_text(encoding="utf-8")
-        modified = False
-        file_errors = 0
+    for input_dir in context.input_dirs:
+        if not input_dir.exists():
+            continue
+        for md_file in input_dir.glob("*.md"):
+            content = md_file.read_text(encoding="utf-8")
+            modified = False
+            file_errors = 0
 
-        def replacer(match: re.Match) -> str:
-            nonlocal modified, file_errors
-            query = match.group(1).strip()
-            try:
-                rendered_markdown = run_query(graph, query, output_format="markdown", wiki_base=context.wiki_base)
-                modified = True
-                return f"<!-- sparql:start -->\n```sparql\n{query}\n```\n\n{rendered_markdown}\n<!-- sparql:end -->"
-            except Exception as e:
-                click.echo(f"Error rendering query in {md_file.name}: {e}", err=True)
-                file_errors += 1
-                return str(match.group(0))
+            def replacer(match: re.Match) -> str:
+                nonlocal modified, file_errors
+                query = match.group(1).strip()
+                try:
+                    rendered_markdown = run_query(graph, query, output_format="markdown", wiki_base=context.wiki_base)
+                    modified = True
+                    return f"<!-- sparql:start -->\n```sparql\n{query}\n```\n\n{rendered_markdown}\n<!-- sparql:end -->"
+                except Exception as e:
+                    click.echo(f"Error rendering query in {md_file.name}: {e}", err=True)
+                    file_errors += 1
+                    return str(match.group(0))
 
-        new_content = SPARQL_BLOCK_REGEX.sub(replacer, content)
-        if modified and new_content != content:
-            md_file.write_text(new_content, encoding="utf-8")
-            success_count += 1
-        error_count += file_errors
+            new_content = SPARQL_BLOCK_REGEX.sub(replacer, content)
+            if modified and new_content != content:
+                md_file.write_text(new_content, encoding="utf-8")
+                success_count += 1
+            error_count += file_errors
 
     return (success_count, error_count)
 

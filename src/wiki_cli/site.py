@@ -140,10 +140,16 @@ def split_by_headings(markdown: str) -> list[tuple[int, str, str]]:
     return sections
 
 
-def build_site(wiki_dir: Path, base_url: str = "/wiki", url_style: str = "file") -> WikiSite:
+def build_site(input_dirs: list[Path] | Path, base_url: str = "/wiki", url_style: str = "file") -> WikiSite:
     """Build in-memory representation of the wiki site."""
+    dirs = [input_dirs] if isinstance(input_dirs, Path) else input_dirs
     pages: list[VirtualPage] = []
-    md_files = sorted(wiki_dir.glob("*.md"))
+
+    md_files: list[Path] = []
+    for d in dirs:
+        if d.exists():
+            md_files.extend(sorted(d.glob("*.md")))
+    md_files.sort()
 
     backlink_index: dict[str, list[str]] = {}
     for md in md_files:

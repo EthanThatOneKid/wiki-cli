@@ -96,30 +96,32 @@ class WikiHandler(BaseHTTPRequestHandler):
 
 
 def create_server(
-    wiki_dir: Path,
+    input_dirs: list[Path] | Path,
     host: str = "127.0.0.1",
     port: int = 8080,
     base_url: str = "/wiki",
 ) -> HTTPServer:
     """Build the site and return a configured HTTPServer (not yet started)."""
-    site = build_site(wiki_dir, base_url=base_url)
+    dirs = [input_dirs] if isinstance(input_dirs, Path) else input_dirs
+    site = build_site(dirs, base_url=base_url)
     WikiHandler.site = site
     WikiHandler.base_url = base_url
 
     server = HTTPServer((host, port), WikiHandler)
     print(f"Wiki server ready at http://{host}:{port}/")
-    print(f"Serving {len(site.pages)} pages from {wiki_dir}")
+    dirs_str = ", ".join(str(d) for d in dirs)
+    print(f"Serving {len(site.pages)} pages from {dirs_str}")
     return server
 
 
 def run_server(
-    wiki_dir: Path,
+    input_dirs: list[Path] | Path,
     host: str = "127.0.0.1",
     port: int = 8080,
     base_url: str = "/wiki",
 ) -> None:
     """Create and start the wiki HTTP server, blocking until shutdown."""
-    server = create_server(wiki_dir, host=host, port=port, base_url=base_url)
+    server = create_server(input_dirs, host=host, port=port, base_url=base_url)
 
     def shutdown(*_: Any) -> None:
         print("\nShutting down server...")
