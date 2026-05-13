@@ -228,5 +228,140 @@ name: Alice
             self.assertIn(".", data["rdf"].strip()[-1])  # N-Triples ends with dot
 
 
+    def test_cli_build(self) -> None:
+        """Test that wiki build generates static HTML site (file style)."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir) / "wiki"
+            wiki_dir.mkdir()
+
+            (wiki_dir / "alice.md").write_text("""---
+type: Person
+name: Alice
+---
+# Alice
+Hello from Alice.
+
+See also [[bob]].""", encoding="utf-8")
+
+            (wiki_dir / "bob.md").write_text("""---
+type: Person
+name: Bob
+---
+# Bob
+Hello from Bob.
+
+## Early Life
+Bob was born.""", encoding="utf-8")
+
+            output_dir = Path(tmpdir) / "_site"
+
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "-o", str(output_dir), "-v"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Built", result.output)
+
+            self.assertTrue((output_dir / "wiki" / "index.html").exists())
+            self.assertTrue((output_dir / "wiki" / "alice.html").exists())
+            self.assertTrue((output_dir / "wiki" / "bob.html").exists())
+            self.assertTrue((output_dir / "wiki" / "bob" / "early-life.html").exists())
+
+            index_content = (output_dir / "wiki" / "index.html").read_text()
+            self.assertIn("Alice", index_content)
+            self.assertIn("Bob", index_content)
+            self.assertIn("alice.html", index_content)
+            self.assertIn("bob.html", index_content)
+            self.assertIn("bob/early-life.html", index_content)
+
+            alice_content = (output_dir / "wiki" / "alice.html").read_text()
+            self.assertIn("Hello from Alice", alice_content)
+            self.assertIn("bob.html", alice_content)
+
+    def test_cli_build_dir_style(self) -> None:
+        """Test that wiki build --url-style dir produces <slug>/index.html with clean links."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir) / "wiki"
+            wiki_dir.mkdir()
+
+            (wiki_dir / "alice.md").write_text("""---
+type: Person
+name: Alice
+---
+# Alice
+Hello from Alice.
+
+See also [[bob]].""", encoding="utf-8")
+
+            (wiki_dir / "bob.md").write_text("""---
+type: Person
+name: Bob
+---
+# Bob
+Hello from Bob.
+
+## Early Life
+Bob was born.""", encoding="utf-8")
+
+            output_dir = Path(tmpdir) / "_site"
+
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "-o", str(output_dir), "--url-style", "dir", "-v"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Built", result.output)
+
+            self.assertTrue((output_dir / "wiki" / "index.html").exists())
+            self.assertTrue((output_dir / "wiki" / "alice" / "index.html").exists())
+            self.assertTrue((output_dir / "wiki" / "bob" / "index.html").exists())
+            self.assertTrue((output_dir / "wiki" / "bob" / "early-life" / "index.html").exists())
+
+            index_content = (output_dir / "wiki" / "index.html").read_text()
+            self.assertIn('href="/wiki/alice"', index_content)
+            self.assertIn('href="/wiki/bob"', index_content)
+            self.assertIn('href="/wiki/bob/early-life"', index_content)
+
+            alice_content = (output_dir / "wiki" / "alice" / "index.html").read_text()
+            self.assertIn("Hello from Alice", alice_content)
+            self.assertIn('href="/wiki/bob"', alice_content)
+
+    def test_cli_build_with_base_url(self) -> None:
+        """Test that wiki build --base-url prefixes all paths."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir) / "wiki"
+            wiki_dir.mkdir()
+
+            (wiki_dir / "alice.md").write_text("""---
+type: Person
+name: Alice
+---
+# Alice
+Hello from [[bob]].""", encoding="utf-8")
+
+            (wiki_dir / "bob.md").write_text("""---
+type: Person
+name: Bob
+---
+# Bob
+Hello from [[alice]].""", encoding="utf-8")
+
+            output_dir = Path(tmpdir) / "_site"
+
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "build", "-o", str(output_dir), "--base-url", "/my-wiki"])
+            self.assertEqual(result.exit_code, 0)
+
+            alice_content = (output_dir / "my-wiki" / "alice.html").read_text()
+            self.assertIn('/my-wiki/bob.html', alice_content)
+            self.assertIn('/my-wiki/', alice_content)
+
+            index_content = (output_dir / "my-wiki" / "index.html").read_text()
+            self.assertIn('/my-wiki/', index_content)
+
+    def test_cli_build_no_wiki_dir(self) -> None:
+        """Test that wiki build errors when wiki directory missing."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["--wiki-dir", "nonexistent", "build"])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("Error", result.output)
+
+
 if __name__ == "__main__":
     unittest.main()

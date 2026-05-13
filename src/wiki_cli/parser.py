@@ -93,6 +93,21 @@ def frontmatter_from_path(path: Path, content_predicate: Optional[str] = None) -
         return None
 
 
+def split_frontmatter_body(content: str) -> tuple[Optional[dict[str, Any]], str]:
+    """Split markdown content into (frontmatter_dict, body_text).
+
+    Returns (None, content) if no valid frontmatter is found.
+    The body is the markdown text after the closing --- (or the full content if no frontmatter).
+    """
+    data = parse_frontmatter(content)
+    if data is None:
+        return None, content
+
+    parts = content.split("---", 2)
+    body = parts[2].strip() if len(parts) > 2 else ""
+    return data, body
+
+
 def normalize_frontmatter_str(content: str, standardize_keys: bool = True) -> str:
     """Normalize frontmatter string in a markdown file.
 

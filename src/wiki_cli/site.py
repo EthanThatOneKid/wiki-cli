@@ -12,7 +12,7 @@ from typing import Any
 from markdown_it import MarkdownIt
 from mdit_py_plugins.wikilink import wikilink_plugin
 
-from .parser import parse_frontmatter
+from .parser import split_frontmatter_body
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
@@ -59,7 +59,11 @@ def slugify(text: str) -> str:
     return text.strip("-")
 
 
-def render_wiki_markdown(text: str) -> str:
+def _url(base_url: str, slug: str, style: str) -> str:
+    return f"{base_url}/{slug}.html" if style == "file" else f"{base_url}/{slug}"
+
+
+def render_wiki_markdown(text: str, base_url: str = "/wiki", url_style: str = "file") -> str:
     md = MarkdownIt("gfm-like", {"linkify": False})
     md.use(wikilink_plugin)
 
@@ -68,7 +72,7 @@ def render_wiki_markdown(text: str) -> str:
         href = token.attrs.get("href", "")
         content = token.content
         slug = slugify(href)
-        return f'<a class="wikilink" href="/wiki/{slug}">{html_module.escape(content)}</a>'
+        return f'<a class="wikilink" href="{_url(base_url, slug, url_style)}">{html_module.escape(content)}</a>'
 
     md.add_render_rule("wikilink", _wikilink_renderer)
     return md.render(text)
@@ -109,17 +113,6 @@ class WikiSite:
     pages: list[VirtualPage]
 
 
-def parse_frontmatter_or_empty(content: str) -> dict[str, Any]:
-    data = parse_frontmatter(content)
-    if data is None:
-        return {}
-    cleaned = {}
-    for k, v in data.items():
-        if not k.startswith("@"):
-            cleaned[k] = v
-    return cleaned
-
-
 def split_by_headings(markdown: str) -> list[tuple[int, str, str]]:
     """Split markdown into sections at H1/H2 boundaries."""
     lines = markdown.split("\n")
@@ -147,7 +140,7 @@ def split_by_headings(markdown: str) -> list[tuple[int, str, str]]:
     return sections
 
 
-def build_site(wiki_dir: Path) -> WikiSite:
+def build_site(wiki_dir: Path, base_url: str = "/wiki", url_style: str = "file") -> WikiSite:
     """Build in-memory representation of the wiki site."""
     pages: list[VirtualPage] = []
     md_files = sorted(wiki_dir.glob("*.md"))
@@ -164,10 +157,8 @@ def build_site(wiki_dir: Path) -> WikiSite:
 
     for md in md_files:
         raw = md.read_text(encoding="utf-8")
-        frontmatter = parse_frontmatter_or_empty(raw)
-
-        body_parts = raw.split("---", 2)
-        body = body_parts[2].strip() if len(body_parts) > 2 else raw
+        fm_data, body = split_frontmatter_body(raw)
+        frontmatter = fm_data if fm_data is not None else {}
 
         sections = split_by_headings(body)
 
@@ -180,7 +171,7 @@ def build_site(wiki_dir: Path) -> WikiSite:
             if 3 <= lvl <= 6:
                 h1_toc.append(TocItem(title=m.group(2).strip(), slug=slugify(m.group(2).strip()), level=lvl))
 
-        h1_html = render_wiki_markdown(all_section_md)
+        h1_html = render_wiki_markdown(all_section_md, base_url=base_url, url_style=url_style)
         pages.append(VirtualPage(
             file_slug=md.stem,
             section_slug=None,
@@ -203,7 +194,7 @@ def build_site(wiki_dir: Path) -> WikiSite:
                 if 3 <= lvl <= 6:
                     toc.append(TocItem(title=m.group(2).strip(), slug=slugify(m.group(2).strip()), level=lvl))
 
-            html_content = render_wiki_markdown(section_md)
+            html_content = render_wiki_markdown(section_md, base_url=base_url, url_style=url_style)
             bl = backlink_index.get(section_slug, []) or backlink_index.get(md.stem, [])
             pages.append(VirtualPage(
                 file_slug=md.stem,
@@ -220,18 +211,18 @@ def build_site(wiki_dir: Path) -> WikiSite:
     return WikiSite(pages=pages)
 
 
-def build_index_html(site: WikiSite) -> str:
+def build_index_html(site: WikiSite, base_url: str = "/wiki", url_style: str = "file") -> str:
     """Compile root Index page HTML."""
     links_html = ""
     seen_files: set[str] = set()
     for page in site.pages:
         if page.file_slug not in seen_files:
             seen_files.add(page.file_slug)
-            links_html += f'<li><a href="/wiki/{page.file_slug}">{html_module.escape(page.title)}</a></li>\n'
+            links_html += f'<li><a href="{_url(base_url, page.file_slug, url_style)}">{html_module.escape(page.title)}</a></li>\n'
             for sub in site.pages:
                 if sub.file_slug == page.file_slug and sub.section_slug:
                     links_html += (
-                        f'<li class="sub-page"><a href="/wiki/{sub.full_slug}">'
+                        f'<li class="sub-page"><a href="{_url(base_url, sub.full_slug, url_style)}">'
                         f"{html_module.escape(sub.title)}</a></li>\n"
                     )
 
@@ -245,8 +236,8 @@ def build_index_html(site: WikiSite) -> str:
 </head>
 <body>
 <header>
-<a href="/" class="site-title">Wiki</a>
-<nav><a href="/">Index</a></nav>
+<a href="{base_url}/" class="site-title">Wiki</a>
+<nav><a href="{base_url}/">Index</a></nav>
 </header>
 <main>
 <h1>All Pages</h1>
@@ -258,7 +249,7 @@ def build_index_html(site: WikiSite) -> str:
 </html>"""
 
 
-def build_page_html(page: VirtualPage, site: WikiSite) -> str:
+def build_page_html(page: VirtualPage, site: WikiSite, base_url: str = "/wiki", url_style: str = "file") -> str:
     """Compile individual page HTML."""
     toc_html = ""
     if page.outline:
@@ -285,7 +276,7 @@ def build_page_html(page: VirtualPage, site: WikiSite) -> str:
                     target = p.full_slug
             if target is None:
                 target = bl
-            items += f'<li><a href="/wiki/{target}">{html_module.escape(bl.replace("-", " ").title())}</a></li>\n'
+            items += f'<li><a href="{_url(base_url, target, url_style)}">{html_module.escape(bl.replace("-", " ").title())}</a></li>\n'
         bl_html = f"""<section class="page-meta">
 <h2>Backlinks</h2>
 <ul class="backlinks-list">
@@ -300,9 +291,9 @@ def build_page_html(page: VirtualPage, site: WikiSite) -> str:
 <pre><code>{html_module.escape(json.dumps(page.frontmatter, indent=2, default=str))}</code></pre>
 </section>"""
 
-    nav_html = f'<a href="/">Index</a>'
+    nav_html = f'<a href="{base_url}/">Index</a>'
     if page.level == 2 and page.section_slug:
-        nav_html += f' | <a href="/wiki/{page.file_slug}">Parent: {page.file_slug.replace("-", " ").title()}</a>'
+        nav_html += f' | <a href="{_url(base_url, page.file_slug, url_style)}">Parent: {page.file_slug.replace("-", " ").title()}</a>'
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -314,7 +305,7 @@ def build_page_html(page: VirtualPage, site: WikiSite) -> str:
 </head>
 <body>
 <header>
-<a href="/" class="site-title">Wiki</a>
+<a href="{base_url}/" class="site-title">Wiki</a>
 <nav>{nav_html}</nav>
 </header>
 <main>

@@ -237,66 +237,99 @@ def render(context: Context, no_inference: bool, verbose: bool) -> None:
 
 
 @main.command()
+@click.option("-o", "--output-dir", default="_site", show_default=True,
+              type=click.Path(path_type=Path), help="Directory to write site files.")
+@click.option("--base-url", default="/wiki", metavar="PATH",
+              help="URL prefix for wiki pages (default: /wiki). Empty string for root-level URLs.")
+@click.option("--url-style", type=click.Choice(["file", "dir"]), default="file",
+              help="File naming: <slug>.html (file) or <slug>/index.html (dir).")
+@click.option("-v", "--verbose", is_flag=True, help="Print generated file paths.")
+@click.pass_obj
+def build(config: Context, output_dir: Path, base_url: str, url_style: str, verbose: bool) -> None:
+    """Build static HTML site from wiki markdown files."""
+    from .site import build_site, build_index_html, build_page_html
+
+    if not config.wiki_dir.exists():
+        click.echo(f"Error: wiki directory '{config.wiki_dir}' does not exist.", err=True)
+        sys.exit(1)
+
+    base_url = base_url.rstrip("/")
+    site = build_site(config.wiki_dir, base_url=base_url, url_style=url_style)
+    output_dir = output_dir.resolve()
+
+    page_output_dir = output_dir / base_url.strip("/") if base_url else output_dir
+    page_output_dir.mkdir(parents=True, exist_ok=True)
+
+    if url_style == "dir":
+        for old in page_output_dir.rglob("index.html"):
+            old.unlink()
+    else:
+        for old in page_output_dir.glob("**/*.html"):
+            old.unlink()
+    for d in sorted(page_output_dir.glob("**/*"), key=lambda p: len(str(p)), reverse=True):
+        if d.is_dir() and not any(d.iterdir()):
+            d.rmdir()
+
+    index_html = build_index_html(site, base_url=base_url, url_style=url_style)
+    (page_output_dir / "index.html").write_text(index_html, encoding="utf-8")
+    if verbose:
+        rel = page_output_dir.relative_to(output_dir)
+        click.echo(f"  {rel / 'index.html'}")
+
+    for page in site.pages:
+        if url_style == "dir":
+            p = page_output_dir / page.full_slug
+            p.mkdir(parents=True, exist_ok=True)
+            file_path = p / "index.html"
+        else:
+            parts = page.full_slug.split("/")
+            if len(parts) == 1:
+                file_path = page_output_dir / f"{parts[0]}.html"
+            else:
+                section_dir = page_output_dir / parts[0]
+                section_dir.mkdir(exist_ok=True)
+                file_path = section_dir / f"{parts[1]}.html"
+        file_path.write_text(build_page_html(page, site, base_url=base_url, url_style=url_style), encoding="utf-8")
+        if verbose:
+            rel_path = file_path.relative_to(output_dir)
+            click.echo(f"  {rel_path}")
+
+    if verbose:
+        click.echo(f"\nBuilt {len(site.pages)} pages to {output_dir}")
+
+
+@main.command()
 @click.argument("file", required=False, type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--output", type=click.Path(path_type=Path), help="File to write serialized RDF output.")
-@click.option("-f", "--format", "output_format", type=click.Choice(["raw", "json-ld", "turtle", "xml", "n3", "nt", "trig", "nquads", "html"]), default="raw", help="Output serialization format.")
+@click.option("-f", "--format", "output_format", type=click.Choice(["raw", "json-ld", "turtle", "xml", "n3", "nt", "trig", "nquads"]), default="raw", help="Output serialization format.")
 @click.pass_obj
 def export(context: Context, file: Optional[Path], output: Optional[Path], output_format: str) -> None:
-    """Compile and export wiki documents in a supported RDF or HTML format."""
+    """Compile and export wiki documents in a supported RDF format."""
     result_payload: Any = None
 
-    if output_format == "html":
-        from .site import build_site, build_index_html, build_page_html
-        site = build_site(context.wiki_dir)
-        
-        if file:
-            target_page = next((p for p in site.pages if p.file_slug == file.stem and not p.section_slug), None)
-            if not target_page:
-                click.echo(f"Error: No indexable markdown found in {file.name}", err=True)
-                sys.exit(1)
-            result_payload = {
-                "name": f"{target_page.file_slug}.html",
-                "content": build_page_html(target_page, site)
-            }
-        else:
-            results = []
-            # Include global index
-            results.append({
-                "name": "index.html",
-                "content": build_index_html(site)
-            })
-            
-            for page in site.pages:
-                name_slug = page.full_slug.replace("/", "-")
-                results.append({
-                    "name": f"{name_slug}.html",
-                    "content": build_page_html(page, site)
-                })
-            result_payload = results
+    if file:
+        data = frontmatter_from_path(file, content_predicate=context.content_predicate)
+        if data is None:
+            click.echo(f"No valid frontmatter block found in {file.name}", err=True)
+            sys.exit(1)
+
+        processed_rdf = process_rdf_format(data, file.stem, context, output_format)
+        result_payload = {
+            "name": file.name,
+            "rdf": processed_rdf,
+        }
     else:
-        if file:
-            data = frontmatter_from_path(file, content_predicate=context.content_predicate)
-            if data is None:
-                click.echo(f"No valid frontmatter block found in {file.name}", err=True)
-                sys.exit(1)
-                
-            processed_rdf = process_rdf_format(data, file.stem, context, output_format)
-            result_payload = {
-                "name": file.name,
-                "rdf": processed_rdf,
-            }
-        else:
-            converted_list = []
-            if context.wiki_dir.exists():
-                for md_file in sorted(context.wiki_dir.glob("*.md")):
-                    data = frontmatter_from_path(md_file, content_predicate=context.content_predicate)
-                    if data:
-                        processed_rdf = process_rdf_format(data, md_file.stem, context, output_format)
-                        converted_list.append({
-                            "name": md_file.name,
-                            "rdf": processed_rdf
-                        })
-            result_payload = converted_list
+        converted_list = []
+        if context.wiki_dir.exists():
+            for md_file in sorted(context.wiki_dir.glob("*.md")):
+                data = frontmatter_from_path(md_file, content_predicate=context.content_predicate)
+                if data:
+                    processed_rdf = process_rdf_format(data, md_file.stem, context, output_format)
+                    converted_list.append({
+                        "name": md_file.name,
+                        "rdf": processed_rdf
+                    })
+        result_payload = converted_list
 
     # Unified serialization and dispatch
     output_str = json.dumps(result_payload, indent=2, default=str)

@@ -26,18 +26,24 @@ from .site import (
 
 class WikiHandler(BaseHTTPRequestHandler):
     site: WikiSite = None  # type: ignore[assignment]
+    base_url: str = "/wiki"
 
     def do_GET(self) -> None:
+        base = self.base_url
         parsed = re.sub(r"\?.*$", "", self.path)
+        if parsed.endswith(".html"):
+            parsed = parsed[:-5]
         parsed = parsed.rstrip("/")
 
         if parsed == "" or parsed == "/index":
-            self._send_html(build_index_html(self.site))
-        elif parsed.startswith("/wiki/"):
-            slug = parsed[6:]
+            self._send_html(build_index_html(self.site, base_url=base))
+        elif parsed == base:
+            self._send_html(build_index_html(self.site, base_url=base))
+        elif parsed.startswith(base + "/"):
+            slug = parsed[len(base) + 1:]
             target = self._find_page(slug)
             if target:
-                self._send_html(build_page_html(target, self.site))
+                self._send_html(build_page_html(target, self.site, base_url=base))
             else:
                 self._send_error(404, f"Page not found: {slug}")
         else:
@@ -72,7 +78,7 @@ class WikiHandler(BaseHTTPRequestHandler):
 <style>{INLINE_CSS}</style>
 </head>
 <body>
-<header><a href="/" class="site-title">Wiki</a></header>
+<header><a href="{self.base_url}/" class="site-title">Wiki</a></header>
 <main>
 <h1>{code}</h1>
 <p>{html_module.escape(message)}</p>
@@ -93,10 +99,12 @@ def create_server(
     wiki_dir: Path,
     host: str = "127.0.0.1",
     port: int = 8080,
+    base_url: str = "/wiki",
 ) -> HTTPServer:
     """Build the site and return a configured HTTPServer (not yet started)."""
-    site = build_site(wiki_dir)
+    site = build_site(wiki_dir, base_url=base_url)
     WikiHandler.site = site
+    WikiHandler.base_url = base_url
 
     server = HTTPServer((host, port), WikiHandler)
     print(f"Wiki server ready at http://{host}:{port}/")
