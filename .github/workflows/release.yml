@@ -34,9 +34,9 @@ jobs:
       - name: Verify tag matches pyproject version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          python -c "import tomllib, pathlib; v=tomllib.loads(pathlib.Path('pyproject.toml').read_bytes()).get('project',{}).get('version'); print(v); assert v, 'missing version'"
+          python -c "import tomllib, pathlib; v=tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8')).get('project',{}).get('version'); print(v); assert v, 'missing version'"
           TAG="${GITHUB_REF_NAME#v}"
-          PYPROJECT="$(python -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_bytes())['project']['version'])")"
+          PYPROJECT="$(python -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])")"
           test "$TAG" = "$PYPROJECT"
 
       - name: Build
