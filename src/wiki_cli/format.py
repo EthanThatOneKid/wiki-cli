@@ -125,7 +125,15 @@ def run_query(graph: Any, query: str, output_format: str = "table", wiki_base: s
     elif output_format == "csv":
         return result.serialize(format="csv").decode("utf-8")
     elif output_format == "tsv":
-        return result.serialize(format="tsv").decode("utf-8")
+        rows = list(result)
+        if not rows:
+            return "(no results)"
+        keys = [str(v) for v in result.vars]
+        lines = ["\t".join(keys)]
+        for row in rows:
+            vals = [str(row.get(k, "")) for k in keys]
+            lines.append("\t".join(vals))
+        return "\n".join(lines)
     elif output_format in ("markdown", "md"):
         return markdown_format(result, wiki_base=wiki_base)
     else:

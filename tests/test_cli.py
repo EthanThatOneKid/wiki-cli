@@ -1,7 +1,12 @@
 import json
+import threading
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from urllib.request import urlopen
+from urllib.error import URLError
+
 from click.testing import CliRunner
 
 from wiki_cli.cli import main
@@ -214,6 +219,44 @@ name: Alice
             parsed = json.loads(out_file.read_text(encoding="utf-8"))
             self.assertIn("results", parsed)
 
+    def test_cli_query_all_formats(self) -> None:
+        """Test every --format choice for query (csv, tsv, markdown, mime aliases)."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            (wiki_dir / "alice.md").write_text("""---
+type: Person
+name: Alice
+---""", encoding="utf-8")
+
+            query_str = "SELECT ?name WHERE { ?s <https://schema.org/name> ?name }"
+
+            # CSV
+            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "--no-inference", "-f", "csv", query_str])
+            self.assertEqual(res.exit_code, 0)
+            self.assertIn("Alice", res.output)
+
+            # TSV (previously broken — now works with inline formatter)
+            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "--no-inference", "-f", "tsv", query_str])
+            self.assertEqual(res.exit_code, 0)
+            self.assertIn("Alice", res.output)
+
+            # Markdown table
+            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "--no-inference", "-f", "markdown", query_str])
+            self.assertEqual(res.exit_code, 0)
+            self.assertIn("Alice", res.output)
+            self.assertIn("|", res.output)
+
+            # MIME alias — "text/csv" resolves to "csv"
+            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "--no-inference", "-f", "text/csv", query_str])
+            self.assertEqual(res.exit_code, 0)
+            self.assertIn("Alice", res.output)
+
+            # Case-insensitive — "JSON" accepted via case_sensitive=False
+            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "query", "--no-inference", "-f", "JSON", query_str])
+            self.assertEqual(res.exit_code, 0)
+            self.assertIn("Alice", res.output)
+
     def test_cli_render_inline_sparql(self) -> None:
         """Test that wiki render updates inline SPARQL blocks correctly."""
         runner = CliRunner()
@@ -353,6 +396,37 @@ name: Alice
             self.assertIn("schema:name", result.output)
             self.assertIn("Alice", result.output)
 
+    def test_cli_export_more_formats(self) -> None:
+        """Test n3, trig export formats (previously uncovered)."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            page = wiki_dir / "alice.md"
+            page.write_text("""---
+type: Person
+name: Alice
+---""", encoding="utf-8")
+
+            # N3
+            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "n3"])
+            self.assertEqual(res.exit_code, 0)
+            self.assertIn("Alice", res.output)
+
+            # Trig
+            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "trig"])
+            self.assertEqual(res.exit_code, 0)
+            self.assertIn("Alice", res.output)
+
+            # MIME alias — "text/n3" resolves to "n3"
+            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "text/n3"])
+            self.assertEqual(res.exit_code, 0)
+            self.assertIn("Alice", res.output)
+
+            # Case-insensitive — "TURTLE" accepted
+            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "TURTLE"])
+            self.assertEqual(res.exit_code, 0)
+            self.assertIn("Alice", res.output)
+
     def test_cli_build(self) -> None:
         """Test that wiki build generates static HTML site (file style)."""
         runner = CliRunner()
@@ -486,6 +560,128 @@ Hello from [[alice]].""", encoding="utf-8")
         result = runner.invoke(main, ["--wiki-dir", "nonexistent", "build"])
         self.assertEqual(result.exit_code, 1)
         self.assertIn("Error", result.output)
+
+    def test_global_raw_dir_flag(self) -> None:
+        """Test --raw-dir: loads raw markdown files into the graph."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            config_dir = Path(tmpdir)
+            wiki_dir = config_dir / "wiki"
+            wiki_dir.mkdir()
+            raw_dir = config_dir / "raw"
+            raw_dir.mkdir()
+            (config_dir / "wiki.yaml").write_text("""wikiDir: wiki
+rawDir: raw
+""", encoding="utf-8")
+            (wiki_dir / "doc.md").write_text("""---
+type: schema:WebPage
+id: wiki:doc
+name: FromWiki
+---""", encoding="utf-8")
+            (raw_dir / "note.md").write_text("""---
+type: schema:WebPage
+id: wiki:note
+name: FromRaw
+---""", encoding="utf-8")
+
+            result = runner.invoke(main, [
+                "-c", str(config_dir),
+                "query", "--no-inference",
+                "SELECT ?name WHERE { ?s <https://schema.org/name> ?name } ORDER BY ?name",
+                "-f", "json",
+            ])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("FromWiki", result.output)
+            self.assertIn("FromRaw", result.output)
+
+    def test_global_import_dir_flag(self) -> None:
+        """Test --import-dir: loads external .ttl into the graph."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir) / "wiki"
+            wiki_dir.mkdir()
+            imports_dir = Path(tmpdir) / "imports"
+            imports_dir.mkdir()
+            (wiki_dir / "doc.md").write_text("""---
+type: schema:WebPage
+id: wiki:doc
+---""", encoding="utf-8")
+            (imports_dir / "extra.ttl").write_text("""
+@prefix ex: <http://example.org/> .
+ex:foo ex:bar "from-import-dir" .
+""", encoding="utf-8")
+
+            result = runner.invoke(main, [
+                "--wiki-dir", str(wiki_dir),
+                "--import-dir", str(imports_dir),
+                "query", "--no-inference",
+                "SELECT ?o WHERE { ?s <http://example.org/bar> ?o }",
+                "-f", "json",
+            ])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("from-import-dir", result.output)
+
+    def test_server_serve_real_request(self) -> None:
+        """Test wiki serve with real --host/--port via HTTP request."""
+        import socket
+        from wiki_cli.serve import run_server
+
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            (wiki_dir / "alice.md").write_text("""---
+type: Person
+name: Alice
+---
+# Alice
+Hello from server test.
+""", encoding="utf-8")
+
+            # Find a free port
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+            sock.close()
+
+            server_thread = threading.Thread(
+                target=run_server,
+                args=(wiki_dir,),
+                kwargs={"host": "127.0.0.1", "port": port},
+                daemon=True,
+            )
+            server_thread.start()
+            time.sleep(0.5)
+
+            try:
+                resp = urlopen(f"http://127.0.0.1:{port}/wiki/alice", timeout=5)
+                html = resp.read().decode("utf-8")
+                self.assertIn("Hello from server test", html)
+                self.assertIn("Alice", html)
+            except URLError:
+                self.fail("Server did not respond in time")
+
+    def test_global_config_flag(self) -> None:
+        """Test -c/--config: loads wiki.yaml from a specified directory."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir) / "wiki"
+            wiki_dir.mkdir()
+            config_dir = Path(tmpdir) / "config"
+            config_dir.mkdir()
+            (wiki_dir / "doc.md").write_text("""---
+type: schema:WebPage
+id: wiki:doc
+name: ConfigTest
+---""", encoding="utf-8")
+            (config_dir / "wiki.yaml").write_text("wikiDir: ../wiki", encoding="utf-8")
+
+            result = runner.invoke(main, [
+                "-c", str(config_dir),
+                "query", "--no-inference",
+                "SELECT ?name WHERE { ?s <https://schema.org/name> ?name }",
+                "-f", "json",
+            ])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("ConfigTest", result.output)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from .parser import normalize_all, normalize_frontmatter_str, frontmatter_from_p
 from .graph import load_graph, graph_stats
 from .audit import check_shacl_file, run_checks
 from .jqfilter import resolve_path
+from .format_choice import FormatChoice
 
 
 @click.group()
@@ -184,7 +185,7 @@ def check(config: Context, file: Optional[Path], normalize: bool, verbose: bool,
 
 @main.command()
 @click.argument("query_args", nargs=-1, required=False)
-@click.option("-f", "--format", "output_format", type=click.Choice(["table", "json", "csv", "tsv", "turtle", "n3", "markdown"]), default="table", show_default=True, help="Output format for query results.")
+@click.option("-f", "--format", "output_format", type=FormatChoice(["table", "json", "csv", "tsv", "turtle", "n3", "markdown"], case_sensitive=False), default="table", show_default=True, help="Output format for query results.")
 @click.option("-o", "--output", type=click.Path(path_type=Path), help="Write output to specified file.")
 @click.option("--no-inference", is_flag=True, help="Skip OWL-RL inference.")
 @click.option("--jq", default=None, help="Extract values from JSON output using a key-path filter (implies -f json).")
@@ -304,7 +305,7 @@ def build(config: Context, output_dir: Path, base_url: str, url_style: str, verb
 @main.command()
 @click.argument("file", required=False, type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--output", type=click.Path(path_type=Path), help="File to write serialized RDF output.")
-@click.option("-r", "--rdf-format", type=click.Choice(["dict", "json-ld", "turtle", "xml", "n3", "nt", "trig", "nquads"]), default="dict", show_default=True, help="RDF serialization format.")
+@click.option("-r", "--rdf-format", type=FormatChoice(["dict", "json-ld", "turtle", "xml", "n3", "nt", "trig"], case_sensitive=False), default="dict", show_default=True, help="RDF serialization format.")
 @click.pass_obj
 def export(context: Context, file: Optional[Path], output: Optional[Path], rdf_format: str) -> None:
     """Compile and export wiki documents in a supported RDF format."""
@@ -335,7 +336,7 @@ def export(context: Context, file: Optional[Path], output: Optional[Path], rdf_f
         result_payload = converted_list
 
     # Standard serialization formats (non-JSON wrappers) get raw RDF output
-    _raw_formats = {"turtle", "xml", "n3", "nt", "trig", "nquads"}
+    _raw_formats = {"turtle", "xml", "n3", "nt", "trig"}
     if rdf_format in _raw_formats and not isinstance(result_payload, list):
         output_str = result_payload["rdf"] if isinstance(result_payload["rdf"], str) else json.dumps(result_payload["rdf"], indent=2, default=str)
         if output:
