@@ -18,7 +18,7 @@ dependencies = [
 wiki = "llm_wiki.__main__:main"
 
 [tool.setuptools]
-packages = ["llm_wiki"]
+packages = ["llm_wiki", "mdit_py_plugins"]
 package-dir = {"" = "src"}
 
 [tool.uv]
