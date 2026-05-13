@@ -427,6 +427,25 @@ name: Alice
             self.assertEqual(res.exit_code, 0)
             self.assertIn("Alice", res.output)
 
+    def test_cli_export_nquads(self) -> None:
+        """Test nquads export format (uses Dataset wrapper internally)."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            page = wiki_dir / "doc.md"
+            page.write_text("""---
+type: schema:WebPage
+id: wiki:doc
+name: TestDoc
+---""", encoding="utf-8")
+
+            res = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "nquads"])
+            self.assertEqual(res.exit_code, 0)
+            # Raw N-Quads output: angle-bracketed URIs, not JSON
+            self.assertNotIn("{", res.output, msg="Raw nquads output should not be JSON")
+            self.assertIn("<", res.output, msg="N-Quads output should contain URIs")
+            self.assertIn('"TestDoc"', res.output, msg="N-Quads output should contain the literal value")
+
     def test_cli_build(self) -> None:
         """Test that wiki build generates static HTML site (file style)."""
         runner = CliRunner()

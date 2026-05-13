@@ -156,5 +156,13 @@ def process_rdf_format(data: dict[str, Any], file_stem: str, context: Any, outpu
         serialized = graph.serialize(format="json-ld", indent=2)
         return json.loads(serialized)
 
+    if output_format == "nquads":
+        from rdflib import Dataset
+        dataset = Dataset()
+        default = dataset.default_graph
+        for s, p, o in graph:
+            default.add((s, p, o))
+        return dataset.serialize(format="nquads")
+
     rdf_format = output_format
     return graph.serialize(format=rdf_format, indent=2)
