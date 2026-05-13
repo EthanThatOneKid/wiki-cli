@@ -259,7 +259,7 @@ Compile and export parsed **Frontmatter** blocks of documents in a supported RDF
 
 When run without a file argument, exports all documents in the wiki directory.
 
-**Note:** When using the default `dict` format or `json-ld`, each file's output is wrapped in a JSON object with `name` (the filename) and `rdf` (the content). For non-JSON formats, the `rdf` value is the serialized string.
+**Note:** When using the default `dict` format or `json-ld`, each file's output is wrapped in a JSON object with `name` (the filename) and `rdf` (the content). For raw RDF formats (`turtle`, `xml`, `n3`, `nt`, `trig`, `nquads`), single-file export outputs raw serialized RDF directly (no JSON wrapper). Multi-file bulk export with raw formats still uses the JSON wrapper for structure.
 
 ```bash
 # Export parsed frontmatter of the entire wiki as dict (default)
