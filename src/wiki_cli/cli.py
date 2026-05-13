@@ -334,14 +334,23 @@ def export(context: Context, file: Optional[Path], output: Optional[Path], rdf_f
                     })
         result_payload = converted_list
 
-    # Unified serialization and dispatch
-    output_str = json.dumps(result_payload, indent=2, default=str)
-    if output:
-        output.write_text(output_str, encoding="utf-8")
-        desc = "payload array" if isinstance(result_payload, list) else "payload"
-        click.echo(f"Written {desc} to {output}")
+    # Standard serialization formats (non-JSON wrappers) get raw RDF output
+    _raw_formats = {"turtle", "xml", "n3", "nt", "trig", "nquads"}
+    if rdf_format in _raw_formats and not isinstance(result_payload, list):
+        output_str = result_payload["rdf"] if isinstance(result_payload["rdf"], str) else json.dumps(result_payload["rdf"], indent=2, default=str)
+        if output:
+            output.write_text(output_str, encoding="utf-8")
+            click.echo(f"Written {rdf_format} output to {output}")
+        else:
+            click.echo(output_str)
     else:
-        click.echo(output_str)
+        output_str = json.dumps(result_payload, indent=2, default=str)
+        if output:
+            output.write_text(output_str, encoding="utf-8")
+            desc = "payload array" if isinstance(result_payload, list) else "payload"
+            click.echo(f"Written {desc} to {output}")
+        else:
+            click.echo(output_str)
 
 
 @main.command()

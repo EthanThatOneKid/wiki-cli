@@ -238,25 +238,22 @@ name: Alice
             self.assertIsInstance(data["rdf"], list)
             self.assertIn("@id", data["rdf"][0])
             
-            # turtle format returns serialized turtle string
+            # turtle format returns raw serialized turtle (no JSON wrapper)
             result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "turtle"])
             self.assertEqual(result.exit_code, 0)
-            data = json.loads(result.output)
-            self.assertIn("schema:name", data["rdf"])  # turtle has prefix:name
-            self.assertIn("Alice", data["rdf"])
+            self.assertIn("schema:name", result.output)  # turtle has prefix:name
+            self.assertIn("Alice", result.output)
             
-            # xml format returns serialized RDF/XML string
+            # xml format returns raw serialized RDF/XML
             result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "xml"])
             self.assertEqual(result.exit_code, 0)
-            data = json.loads(result.output)
-            self.assertIn("rdf:Description", data["rdf"])
+            self.assertIn("rdf:Description", result.output)
             
-            # nt format returns N-Triples string
+            # nt format returns raw N-Triples
             result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "export", str(page), "--rdf-format", "nt"])
             self.assertEqual(result.exit_code, 0)
-            data = json.loads(result.output)
-            self.assertIn("Alice", data["rdf"])
-            self.assertIn(".", data["rdf"].strip()[-1])  # N-Triples ends with dot
+            self.assertIn("Alice", result.output)
+            self.assertIn(".", result.output.strip()[-1])  # N-Triples ends with dot
 
 
     def test_cli_build(self) -> None:
