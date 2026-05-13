@@ -106,8 +106,10 @@ def check_shacl_all(context: WikiConfig, verbose: bool = False) -> tuple[bool, s
     return conforms, results_text
 
 
-def audit_filenames(config: WikiConfig) -> list[str]:
+def audit_filenames(config: WikiConfig, file_filter: set[str] | None = None) -> list[str]:
     """Audit filenames in the wiki directory to ensure they are lowercase kebab-case.
+
+    If file_filter is set, only check files whose stem is in the set.
 
     Returns a list of warnings.
     """
@@ -117,6 +119,8 @@ def audit_filenames(config: WikiConfig) -> list[str]:
 
     for md_file in sorted(config.wiki_dir.glob("*.md")):
         stem = md_file.stem
+        if file_filter is not None and stem not in file_filter:
+            continue
         if not FILENAME_REGEX.match(stem):
             warnings.append(
                 f"Filename '{md_file.name}' is not lowercase kebab-case."
@@ -124,8 +128,10 @@ def audit_filenames(config: WikiConfig) -> list[str]:
     return warnings
 
 
-def audit_internal_links(config: WikiConfig) -> list[str]:
+def audit_internal_links(config: WikiConfig, file_filter: set[str] | None = None) -> list[str]:
     """Audit internal wikilinks and standard Markdown links in markdown files to ensure they point to existing documents.
+
+    If file_filter is set, only check files whose stem is in the set.
 
     Returns a list of warnings.
     """
@@ -136,6 +142,8 @@ def audit_internal_links(config: WikiConfig) -> list[str]:
     existing_files = {md_file.stem for md_file in config.wiki_dir.glob("*.md")}
 
     for md_file in sorted(config.wiki_dir.glob("*.md")):
+        if file_filter is not None and md_file.stem not in file_filter:
+            continue
         try:
             content = md_file.read_text(encoding="utf-8")
             

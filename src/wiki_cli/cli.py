@@ -104,9 +104,6 @@ def _exit_check_results(conforms: bool, errors: list[str], warnings: list[str], 
 @click.pass_obj
 def check(config: Context, file: Optional[Path], normalize: bool, verbose: bool, strict: bool) -> None:
     """Run unified checks: strict SHACL validation + style audits."""
-    from urllib.parse import unquote
-    from .audit import FILENAME_REGEX, WIKILINK_REGEX, MARKDOWN_LINK_REGEX
-
     if normalize:
         if file:
             original = file.read_text(encoding="utf-8")
@@ -135,32 +132,11 @@ def check(config: Context, file: Optional[Path], normalize: bool, verbose: bool,
                 conforms = False
                 errors.append(f"SHACL Validation Violation in {file.name}:\n{shacl_text}")
 
-        # Style audits specifically for this file
-        if not FILENAME_REGEX.match(file.stem):
-            warnings.append(f"Filename '{file.name}' is not lowercase kebab-case.")
-
-        try:
-            content = file.read_text(encoding="utf-8")
-            existing_files = {md_file.stem for md_file in config.wiki_dir.glob("*.md")}
-
-            wikilinks = WIKILINK_REGEX.findall(content)
-            for link in wikilinks:
-                slug = link.strip().lower().replace(" ", "-")
-                if slug not in existing_files:
-                    warnings.append(
-                        f"In {file.name}: Broken WikiLink [[{link}]] points to non-existent document."
-                    )
-
-            md_links = MARKDOWN_LINK_REGEX.findall(content)
-            for target in md_links:
-                decoded_target = unquote(target.split("#")[0].split("?")[0])
-                slug = Path(decoded_target).stem.strip().lower().replace(" ", "-")
-                if slug and slug not in existing_files:
-                    warnings.append(
-                        f"In {file.name}: Broken Markdown link [{target}] points to non-existent document."
-                    )
-        except (OSError, UnicodeDecodeError) as e:
-            warnings.append(f"Failed to read {file.name} for link audit: {e}")
+        # Style audits specifically for this file (delegates to audit.py)
+        from .audit import audit_filenames, audit_internal_links
+        file_filter = {file.stem}
+        warnings.extend(audit_filenames(config, file_filter=file_filter))
+        warnings.extend(audit_internal_links(config, file_filter=file_filter))
 
         if strict and warnings:
             errors.extend(warnings)
