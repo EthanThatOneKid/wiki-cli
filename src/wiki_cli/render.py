@@ -18,13 +18,15 @@ SPARQL_BLOCK_REGEX = re.compile(
 )
 
 
-def render_markdown_files(context: Any, graph: Any) -> tuple[int, int]:
+def render_markdown_files(context: Any, graph: Any, dry_run: bool = False) -> tuple[int, int, list[str]]:
     """Iterate over all markdown files, parse and replace dynamic SPARQL sections inline.
 
-    Returns (success_count, error_count).
+    Returns (success_count, error_count, stale_files).
     """
+    from pathlib import Path
     success_count = 0
     error_count = 0
+    stale_files = []
 
     for input_dir in context.input_dirs:
         if not input_dir.exists():
@@ -48,11 +50,18 @@ def render_markdown_files(context: Any, graph: Any) -> tuple[int, int]:
 
             new_content = SPARQL_BLOCK_REGEX.sub(replacer, content)
             if modified and new_content != content:
-                md_file.write_text(new_content, encoding="utf-8")
-                success_count += 1
+                try:
+                    rel = str(md_file.relative_to(Path.cwd()))
+                except ValueError:
+                    rel = str(md_file)
+                stale_files.append(rel)
+                
+                if not dry_run:
+                    md_file.write_text(new_content, encoding="utf-8")
+                    success_count += 1
             error_count += file_errors
 
-    return (success_count, error_count)
+    return (success_count, error_count, stale_files)
 
 
 def render_markdown(text: str) -> str:

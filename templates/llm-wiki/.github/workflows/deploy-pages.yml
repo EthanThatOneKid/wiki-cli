@@ -23,9 +23,7 @@ jobs:
       - name: Audit wiki style and SHACL constraints
         run: wiki check --strict -v
       - name: Verify SPARQL block rendering is up to date
-        run: |
-          wiki render
-          git diff --exit-code || (echo "::error::Inline SPARQL blocks are out of date! Run 'wiki render' locally and commit the changes." && exit 1)
+        run: wiki render --check
       - name: Build Static Site
         run: wiki build --output-dir _site
       - uses: actions/upload-pages-artifact@v3

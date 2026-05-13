@@ -247,6 +247,43 @@ SELECT ?name WHERE { ?s <https://schema.org/name> ?name }
             updated_content = file_path.read_text(encoding="utf-8")
             self.assertIn("Gregory", updated_content)
 
+    def test_cli_render_check(self) -> None:
+        """Test that wiki render --check reports stale files correctly without updating them."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            source_content = """---
+type: Person
+name: Gregory
+---
+<!-- sparql:start -->
+```sparql
+SELECT ?name WHERE { ?s <https://schema.org/name> ?name }
+```
+<!-- sparql:end -->
+"""
+            file_path = wiki_dir / "gregory.md"
+            file_path.write_text(source_content, encoding="utf-8")
+            
+            # 1. Check should FAIL because the table is missing (stale)
+            result_stale = runner.invoke(main, ["--input-dir", str(wiki_dir), "render", "--no-inference", "--check"])
+            self.assertEqual(result_stale.exit_code, 1)
+            self.assertIn("Error: Inline SPARQL blocks are out of date", result_stale.output)
+            
+            # Verify the file remained UNCHANGED (no disk write)
+            current_content = file_path.read_text(encoding="utf-8")
+            self.assertEqual(current_content, source_content)
+            self.assertNotIn("Gregory", current_content.split("```")[-1])
+            
+            # 2. Now, actually render it
+            result_render = runner.invoke(main, ["--input-dir", str(wiki_dir), "render", "--no-inference"])
+            self.assertEqual(result_render.exit_code, 0)
+            
+            # 3. Now, check should SUCCEED since it's up to date
+            result_clean = runner.invoke(main, ["--input-dir", str(wiki_dir), "render", "--no-inference", "--check", "-v"])
+            self.assertEqual(result_clean.exit_code, 0)
+            self.assertIn("All dynamic SPARQL blocks are fully up to date", result_clean.output)
+
     def test_cli_export(self) -> None:
         """Test that wiki export supports bulk and single file exports."""
         runner = CliRunner()

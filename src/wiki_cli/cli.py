@@ -160,12 +160,24 @@ def query(context: Context, query_args: tuple[str, ...], output_format: str, out
 
 @main.command()
 @click.option("--no-inference", is_flag=True, help="Skip OWL-RL inference.")
+@click.option("--check", is_flag=True, help="Check if inline SPARQL blocks are up to date without modifying files. Exits with non-zero code if any are stale.")
 @click.option("-v", "--verbose", is_flag=True, help="Print summary of updated files.")
 @click.pass_obj
-def render(context: Context, no_inference: bool, verbose: bool) -> None:
+def render(context: Context, no_inference: bool, check: bool, verbose: bool) -> None:
     """Render inline SPARQL blocks in markdown files."""
     graph = load_graph(context, infer=not no_inference)
-    success_count, error_count = render_markdown_files(context, graph)
+    success_count, error_count, stale_files = render_markdown_files(context, graph, dry_run=check)
+    
+    if check:
+        if stale_files:
+            click.echo("Error: Inline SPARQL blocks are out of date in the following files:", err=True)
+            for f in stale_files:
+                click.echo(f"  - {f}", err=True)
+            sys.exit(1)
+        if verbose:
+            click.echo("All dynamic SPARQL blocks are fully up to date.")
+        return
+
     if verbose:
         parts = [f"Updated {success_count} files"]
         if error_count:
@@ -189,7 +201,7 @@ def build(config: Context, output_dir: Path, base_url: str, url_style: str, rend
 
     if render:
         graph = load_graph(config, infer=True)
-        success, errors = render_markdown_files(config, graph)
+        success, errors, stale = render_markdown_files(config, graph)
         if verbose and success > 0:
             click.echo(f"Rendered SPARQL dynamic blocks in {success} files.")
 

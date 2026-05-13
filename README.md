@@ -81,6 +81,9 @@ wiki render
 
 # Render with verbose summary output
 wiki render -v
+
+# Check if any files are stale without modifying them (non-zero exit on stale)
+wiki render --check
 ```
 
 An embedded SPARQL block is defined in your markdown files like this:
