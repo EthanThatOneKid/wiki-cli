@@ -4,7 +4,7 @@ An elegant, pure, and idiomatic Python command-line interface for managing a sem
 
 ## Key features
 - **Modern Packaging**: Configured cleanly with standard `pyproject.toml` optimized for `uv` or `pip`.
-- **Pure Python CLI**: Six subcommands — `check`, `query`, `render`, `build`, `serve`, `export`.
+- **Pure Python CLI**: Comprehensive command suite — `check`, `query`, `render`, `build`, `serve`, `export`.
 - **Flexible Frontmatter Parsing**: Supports YAML and JSON frontmatter blocks with standard triple-dash `---` boundaries.
 - **RDF Context Support** Supports JSON-LD `@context` style namespace, prefix mappings, and settings.
 - **Deductive Reasoning**: Full OWL-RL deductive reasoning expansion powered by `owlrl`.
