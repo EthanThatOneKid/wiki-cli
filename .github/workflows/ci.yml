@@ -39,3 +39,14 @@ jobs:
 
     - name: Run Docs Wiki Style and SHACL Audits
       run: uv run wiki -c docs/wiki.json check --strict -v
+
+    - name: Run SPARQL Render on Template Wiki
+      run: uv run wiki render
+      working-directory: templates/llm-wiki
+
+    - name: Run SPARQL Render on Docs Wiki
+      run: uv run wiki -c docs/wiki.json render
+
+    - name: Verify All Dynamic SPARQL Blocks are Up to Date
+      run: |
+        git diff --exit-code || (echo "::error::Inline SPARQL blocks are out of date! Run 'wiki render' locally and commit the changes." && exit 1)
