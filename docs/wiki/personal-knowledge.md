@@ -57,6 +57,7 @@ ORDER BY ?name
 | [[negotiation]] | Content negotiation |
 | [[farzapedia]] | Farzapedia and personal AI wikis |
 | [[html]] | HTML |
+| [[hello-world]] | Hello World |
 | [[json]] | JSON |
 | [[json-ld]] | JSON-LD |
 | [[javascript]] | JavaScript |
