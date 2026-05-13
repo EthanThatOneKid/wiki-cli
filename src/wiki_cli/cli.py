@@ -22,7 +22,7 @@ from .format_choice import FormatChoice
 @click.option("--wiki-dir", default=None, help="Directory containing wiki markdown files.")
 @click.option("--import-dir", "cli_import_dirs", multiple=True, help="Additional directory of RDF data/ontologies to load into the central pool.")
 @click.option("--raw-dir", default=None, help="Directory containing raw markdown files.")
-@click.option("-c", "--config", "config_path", default=".", help="Path to wiki configuration file or parent directory.")
+@click.option("-c", "--config", "config_path", default=".", help="Path to wiki.yaml or directory containing wiki.yaml/wiki.yml/wiki.json (default: current directory).")
 @click.pass_context
 def main(ctx: click.Context, wiki_dir: Optional[str], cli_import_dirs: tuple[str, ...], raw_dir: Optional[str], config_path: str) -> None:
     """Query, validate, and manage your semantic LLM wiki."""
