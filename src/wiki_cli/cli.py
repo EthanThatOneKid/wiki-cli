@@ -184,7 +184,7 @@ def check(config: Context, file: Optional[Path], normalize: bool, verbose: bool,
 
 @main.command()
 @click.argument("query_args", nargs=-1, required=False)
-@click.option("-f", "--format", "output_format", type=click.Choice(["table", "json", "csv", "tsv", "turtle", "n3", "markdown"]), default="table", help="Output format for query results.")
+@click.option("-f", "--format", "output_format", type=click.Choice(["table", "json", "csv", "tsv", "turtle", "n3", "markdown"]), default="table", show_default=True, help="Output format for query results.")
 @click.option("-o", "--output", type=click.Path(path_type=Path), help="Write output to specified file.")
 @click.option("--no-inference", is_flag=True, help="Skip OWL-RL inference.")
 @click.option("--jq", default=None, help="Extract values from JSON output using a key-path filter (implies -f json).")
@@ -242,9 +242,9 @@ def render(context: Context, no_inference: bool, verbose: bool) -> None:
 @main.command()
 @click.option("--output-dir", default="_site", show_default=True,
               type=click.Path(path_type=Path), help="Directory to write site files.")
-@click.option("--base-url", default="/wiki", metavar="PATH",
-              help="URL prefix for wiki pages (default: /wiki). Empty string for root-level URLs.")
-@click.option("--url-style", type=click.Choice(["file", "dir"]), default="file",
+@click.option("--base-url", default="/wiki", show_default=True,
+              help="URL prefix for wiki pages. Empty string for root-level URLs.")
+@click.option("--url-style", type=click.Choice(["file", "dir"]), default="file", show_default=True,
               help="File naming: <slug>.html (file) or <slug>/index.html (dir).")
 @click.option("-v", "--verbose", is_flag=True, help="Print generated file paths.")
 @click.pass_obj
@@ -304,7 +304,7 @@ def build(config: Context, output_dir: Path, base_url: str, url_style: str, verb
 @main.command()
 @click.argument("file", required=False, type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--output", type=click.Path(path_type=Path), help="File to write serialized RDF output.")
-@click.option("-r", "--rdf-format", type=click.Choice(["dict", "json-ld", "turtle", "xml", "n3", "nt", "trig", "nquads"]), default="dict", help="RDF serialization format.")
+@click.option("-r", "--rdf-format", type=click.Choice(["dict", "json-ld", "turtle", "xml", "n3", "nt", "trig", "nquads"]), default="dict", show_default=True, help="RDF serialization format.")
 @click.pass_obj
 def export(context: Context, file: Optional[Path], output: Optional[Path], rdf_format: str) -> None:
     """Compile and export wiki documents in a supported RDF format."""

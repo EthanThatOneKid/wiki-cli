@@ -70,6 +70,37 @@ name: Invalid Page
             self.assertIn("Errors:", result_strict.output)
             self.assertIn("is not lowercase kebab-case", result_strict.output)
 
+    def test_cli_check_normalize(self) -> None:
+        """Test that wiki check --normalize standardizes frontmatter keys."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            file_path = wiki_dir / "alice.md"
+            file_path.write_text("""---
+given_name: Alice
+type: Person
+---
+# Alice
+""", encoding="utf-8")
+
+            # Normalize single file (given_name -> givenName)
+            result = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "check", str(file_path), "--normalize"])
+            self.assertEqual(result.exit_code, 0)
+            content = file_path.read_text(encoding="utf-8")
+            self.assertIn("givenName: Alice", content)
+            self.assertNotIn("given_name: Alice", content)
+
+            # Bulk normalize multiple files
+            file2 = wiki_dir / "bob.md"
+            file2.write_text("""---
+family_name: Bob
+---
+# Bob
+""", encoding="utf-8")
+            result_bulk = runner.invoke(main, ["--wiki-dir", str(wiki_dir), "check", "--normalize", "-v"])
+            self.assertEqual(result_bulk.exit_code, 0)
+            self.assertIn("Normalized frontmatter in", result_bulk.output)
+
     def test_cli_check_single_file(self) -> None:
         """Test wiki check with a single file specified."""
         runner = CliRunner()
@@ -158,6 +189,30 @@ name: Alice
             ])
             self.assertEqual(result_empty.exit_code, 0)
             self.assertEqual(result_empty.output.strip(), "")
+
+    def test_cli_query_output_file(self) -> None:
+        """Test that wiki query -o writes results to a file."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            (wiki_dir / "alice.md").write_text("""---
+type: Person
+name: Alice
+---""", encoding="utf-8")
+
+            query_str = "SELECT ?name WHERE { ?s <https://schema.org/name> ?name }"
+            out_file = Path(tmpdir) / "results.json"
+
+            result = runner.invoke(main, [
+                "--wiki-dir", str(wiki_dir),
+                "query", "--no-inference", query_str,
+                "-f", "json", "-o", str(out_file)
+            ])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Written results to", result.output)
+            self.assertTrue(out_file.exists())
+            parsed = json.loads(out_file.read_text(encoding="utf-8"))
+            self.assertIn("results", parsed)
 
     def test_cli_render_inline_sparql(self) -> None:
         """Test that wiki render updates inline SPARQL blocks correctly."""
@@ -255,6 +310,48 @@ name: Alice
             self.assertIn("Alice", result.output)
             self.assertIn(".", result.output.strip()[-1])  # N-Triples ends with dot
 
+    def test_cli_export_output_flag(self) -> None:
+        """Test that wiki export -o writes to a file."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            page = wiki_dir / "alice.md"
+            page.write_text("""---
+type: Person
+name: Alice
+---""", encoding="utf-8")
+
+            out_file = Path(tmpdir) / "export.json"
+            result = runner.invoke(main, [
+                "--wiki-dir", str(wiki_dir),
+                "export", str(page),
+                "-o", str(out_file)
+            ])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Written payload", result.output)
+            self.assertTrue(out_file.exists())
+            data = json.loads(out_file.read_text(encoding="utf-8"))
+            self.assertEqual(data["rdf"]["name"], "Alice")
+
+    def test_cli_export_short_format_flag(self) -> None:
+        """Test that wiki export -r short form works for format selection."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir)
+            page = wiki_dir / "alice.md"
+            page.write_text("""---
+type: Person
+name: Alice
+---""", encoding="utf-8")
+
+            result = runner.invoke(main, [
+                "--wiki-dir", str(wiki_dir),
+                "export", str(page),
+                "-r", "turtle"
+            ])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("schema:name", result.output)
+            self.assertIn("Alice", result.output)
 
     def test_cli_build(self) -> None:
         """Test that wiki build generates static HTML site (file style)."""
