@@ -65,8 +65,8 @@ wiki check
 # Check a single file specifically
 wiki check wiki/gregory.md
 
-# Run checks and automatically normalize/standardize frontmatter block casing and formatting
-wiki check --fix
+# Normalize frontmatter key casing and formatting
+wiki check --normalize
 
 # Run with verbose output to show style/guideline warnings
 wiki check -v
@@ -128,10 +128,10 @@ wiki build
 wiki build --url-style dir
 
 # Build to a custom directory with verbose output
-wiki build -o docs -v
+wiki build --output-dir docs -v
 
 # Build for a project site under /my-wiki/
-wiki build --base-url /my-wiki -o _site
+wiki build --base-url /my-wiki --output-dir _site
 
 # Build with pages at root level (no prefix)
 wiki build --base-url '' --output-dir docs
@@ -227,7 +227,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install wiki-cli
-      - run: wiki build -o _site
+      - run: pip install wiki-cli
+      - run: wiki build --output-dir _site
       - uses: actions/upload-pages-artifact@v3
       - uses: actions/deploy-pages@v4
 ```
@@ -236,11 +237,11 @@ Then enable **GitHub Pages > Source: GitHub Actions** in your repo settings.
 
 For project sites (e.g. `username.github.io/my-wiki`), update the build step:
 ```yaml
-      - run: wiki build --base-url /my-wiki/wiki -o _site
+      - run: wiki build --base-url /my-wiki/wiki --output-dir _site
 ```
 
 ### `serve`
-Start a local HTTP server for browsing the wiki during development. Serves raw markdown files from the wiki directory — no server-side rendering. Use `wiki build` first and serve the output directory with a proper static server for production.
+Start a local development HTTP server that renders wiki markdown files as HTML (wikilinks, backlinks, ToC included). Uses the same rendering engine as `build` but serves pages on-the-fly without writing files to disk.
 
 ```bash
 # Default: http://127.0.0.1:8080
@@ -255,32 +256,23 @@ Compile and export parsed **Frontmatter** blocks of documents in a supported RDF
 
 When run without a file argument, exports all documents in the wiki directory.
 
-**Note:** Output is always wrapped in a JSON structure — even for non-JSON formats. Each file becomes an object with `name` (the filename) and `rdf` (the serialized content). For example, `wiki export -f turtle` produces:
-
-```json
-[
-  {
-    "name": "gregory.md",
-    "rdf": "@prefix schema: <https://schema.org/> ..."
-  }
-]
-```
+**Note:** When using the default `dict` format or `json-ld`, each file's output is wrapped in a JSON object with `name` (the filename) and `rdf` (the content). For non-JSON formats, the `rdf` value is the serialized string.
 
 ```bash
-# Export parsed frontmatter of the entire wiki as raw JSON-LD
+# Export parsed frontmatter of the entire wiki as dict (default)
 wiki export
 
 # Export a single file
 wiki export wiki/gregory.md
 
-# Export as expanded JSON-LD using the config for namespace resolution
-wiki export -c . wiki/rdf.md -f json-ld
+# Export as expanded JSON-LD
+wiki export -c . wiki/rdf.md -r json-ld
 
 # Export in other RDF formats (turtle, xml, n3, nt, trig, nquads)
-wiki export -c . wiki/rdf.md -f turtle
+wiki export -c . wiki/rdf.md -r turtle
 
 # Write to a file
-wiki export -f json-ld -o wiki-export.json
+wiki export -r json-ld -o wiki-export.json
 ```
 
 
@@ -294,7 +286,6 @@ These flags can be used on any subcommand:
 | `--wiki-dir <path>` | Override the wiki markdown directory |
 | `--import-dir <path>` | Additional directory of RDF data/ontologies to load (can be repeated) |
 | `--raw-dir <path>` | Directory containing raw markdown files |
-| `--no-inference` | Skip OWL-RL deductive reasoning (available on `query` and `render`) |
 
 ### Printing and piping
 Following the Unix philosophy of pipes and filters, `wiki` works seamlessly with native system utilities. Outputs from query execution or document inspection can be easily formatted and spooled directly to your printer.
