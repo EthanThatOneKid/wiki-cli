@@ -33,16 +33,8 @@ jobs:
         PYTHONPATH: src
       run: uv run python -m unittest discover -s tests
 
-    - name: Run Template Wiki Style and SHACL Audits
-      run: uv run wiki check --strict -v
-      working-directory: templates/llm-wiki
-
     - name: Run Docs Wiki Style and SHACL Audits
       run: uv run wiki -c docs/wiki.json check --strict -v
-
-    - name: Verify Template Wiki SPARQL Blocks are Up to Date
-      run: uv run wiki render --check
-      working-directory: templates/llm-wiki
 
     - name: Verify Docs Wiki SPARQL Blocks are Up to Date
       run: uv run wiki -c docs/wiki.json render --check

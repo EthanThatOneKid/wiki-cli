@@ -4,6 +4,8 @@ An elegant, pure, and idiomatic Python command-line interface for managing a sem
 
 Repository: [github.com/wazootech/llm-wiki](https://github.com/wazootech/llm-wiki). PyPI package: `llm-wiki`. CLI command: `wiki`.
 
+Starter template repo: [github.com/wazootech/llm-wiki-template](https://github.com/wazootech/llm-wiki-template) (use GitHub’s “Use this template” button).
+
 ## Key features
 - **Modern Packaging**: Configured cleanly with standard `pyproject.toml` optimized for `uv` or `pip`.
 - **Pure Python CLI**: Comprehensive command suite — `check`, `query`, `render`, `build`, `serve`, `export`.

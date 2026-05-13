@@ -1,8 +1,0 @@
-# wiki.yaml
-inputDirs:
-  - wiki
-contentPredicate: schema:text
-
-context:
-  schema: https://schema.org/
-  wiki: https://wazootech.github.io/llm-wiki/templates/llm-wiki/wiki/
