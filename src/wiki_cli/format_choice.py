@@ -1,4 +1,4 @@
-"""Custom Click Choice type with MIME type aliases and "did you mean" suggestions."""
+"""Custom Click Choice type with format name aliases (MIME types, file extensions) and "did you mean" suggestions."""
 
 from __future__ import annotations
 
@@ -10,18 +10,19 @@ import click
 
 
 class FormatChoice(click.Choice):
-    """A Click Choice that accepts MIME type aliases and suggests close matches.
+    """A Click Choice that accepts format aliases and suggests close matches.
 
     In addition to the canonical short names (e.g. ``"turtle"``, ``"json"``),
-    each recognised MIME type (e.g. ``"text/turtle"``, ``"application/sparql-results+json"``)
-    is transparently resolved to its canonical name.
+    each recognised alias — MIME type (``"text/turtle"``), file extension
+    (``"ttl"``), or alternative name (``"ntriples"``) — is transparently
+    resolved to its canonical short name.
 
     On invalid input, ``difflib.get_close_matches`` is used to suggest alternatives.
     """
 
     #: Mapping from alias → canonical short name.  Shared across all instances.
     #: Includes MIME types, file extensions, and common alternative names.
-    MIME_ALIASES: dict[str, str] = {
+    FORMAT_ALIASES: dict[str, str] = {
         # SPARQL result media types
         "application/sparql-results+json": "json",
         "application/json": "json",
@@ -41,7 +42,9 @@ class FormatChoice(click.Choice):
         "ttl": "turtle",
         "tt": "turtle",
         "ntriples": "nt",
+        "n-triples": "nt",
         "nq": "nquads",
+        "n-quads": "nquads",
         "rdf": "xml",
         "jsonld": "json-ld",
         "md": "markdown",
@@ -63,10 +66,10 @@ class FormatChoice(click.Choice):
     def normalize_choice(self, choice: Any, ctx: Optional[click.Context]) -> str:
         raw = str(choice)
 
-        # MIME alias lookup — case-insensitive when case_sensitive=False
-        alias_map = self.MIME_ALIASES
+        # Alias lookup — case-insensitive when case_sensitive=False
+        alias_map = self.FORMAT_ALIASES
         if not self.case_sensitive:
-            alias_map = {k.casefold(): v for k, v in self.MIME_ALIASES.items()}
+            alias_map = {k.casefold(): v for k, v in self.FORMAT_ALIASES.items()}
             lookup_key = raw.casefold()
         else:
             lookup_key = raw
@@ -85,7 +88,7 @@ class FormatChoice(click.Choice):
         base = super().get_invalid_choice_message(value, ctx)
 
         valid = list(dict.fromkeys(str(c) for c in self.choices))
-        valid.extend(self.MIME_ALIASES)
+        valid.extend(self.FORMAT_ALIASES)
 
         suggestions = get_close_matches(str(value), valid, n=3, cutoff=self.cutoff)
         if suggestions:
