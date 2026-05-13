@@ -180,11 +180,18 @@ def render(context: Context, no_inference: bool, verbose: bool) -> None:
               help="URL prefix for wiki pages. Empty string for root-level URLs.")
 @click.option("--url-style", type=click.Choice(["file", "dir"]), default="file", show_default=True,
               help="File naming: <slug>.html (file) or <slug>/index.html (dir).")
+@click.option("--render", is_flag=True, help="Run SPARQL dynamic block rendering on markdown files before building.")
 @click.option("-v", "--verbose", is_flag=True, help="Print generated file paths.")
 @click.pass_obj
-def build(config: Context, output_dir: Path, base_url: str, url_style: str, verbose: bool) -> None:
+def build(config: Context, output_dir: Path, base_url: str, url_style: str, render: bool, verbose: bool) -> None:
     """Build static HTML site from wiki markdown files."""
     from .site import build_site, build_index_html, build_page_html
+
+    if render:
+        graph = load_graph(config, infer=True)
+        success, errors = render_markdown_files(config, graph)
+        if verbose and success > 0:
+            click.echo(f"Rendered SPARQL dynamic blocks in {success} files.")
 
     if not any(d.exists() for d in config.input_dirs):
         dirs_str = ", ".join(str(d) for d in config.input_dirs)

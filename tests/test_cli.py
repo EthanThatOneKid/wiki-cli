@@ -457,6 +457,42 @@ Bob was born.""", encoding="utf-8")
             self.assertIn("Hello from Alice", alice_content)
             self.assertIn("bob.html", alice_content)
 
+    def test_cli_build_with_render(self) -> None:
+        """Test that wiki build --render updates dynamic blocks before generating site."""
+        runner = CliRunner()
+        with TemporaryDirectory() as tmpdir:
+            wiki_dir = Path(tmpdir) / "wiki"
+            wiki_dir.mkdir()
+
+            file_path = wiki_dir / "person.md"
+            file_path.write_text("""---
+type: Person
+name: Charlie
+---
+# Charlie
+<!-- sparql:start -->
+```sparql
+SELECT ?name WHERE { ?s <https://schema.org/name> ?name }
+```
+<!-- sparql:end -->
+""", encoding="utf-8")
+
+            output_dir = Path(tmpdir) / "_site"
+
+            # Run build with --render and -v
+            result = runner.invoke(main, ["--input-dir", str(wiki_dir), "build", "--output-dir", str(output_dir), "--render", "-v"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Rendered SPARQL dynamic blocks", result.output)
+
+            # Check that the source file itself was updated inline
+            updated_content = file_path.read_text(encoding="utf-8")
+            self.assertIn("Charlie", updated_content)
+            self.assertIn("| Name |", updated_content) # It constructs a markdown table
+
+            # Check that the generated HTML contains the rendered content
+            html_content = (output_dir / "wiki" / "person.html").read_text(encoding="utf-8")
+            self.assertIn("Charlie", html_content)
+
     def test_cli_build_dir_style(self) -> None:
         """Test that wiki build --url-style dir produces <slug>/index.html with clean links."""
         runner = CliRunner()

@@ -118,6 +118,9 @@ wiki build --base-url /my-wiki --output-dir _site
 
 # Build with pages at root level (no prefix)
 wiki build --base-url '' --output-dir docs
+
+# Automatically update all dynamic SPARQL blocks in source files before building
+wiki build --render
 ```
 
 The `--url-style` flag controls how pages are written to disk and linked:
