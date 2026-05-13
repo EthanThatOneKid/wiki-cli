@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any, Optional
@@ -13,6 +14,8 @@ from rdflib.plugin import register
 
 from .config import Context, WikiConfig
 from .parser import frontmatter_from_path
+
+logger = logging.getLogger(__name__)
 
 
 def kebab_case(s: str) -> str:
@@ -172,7 +175,8 @@ def build_name_to_id_map(wiki_dir: Path, context: Context) -> dict[str, str]:
                 full_name = f"{given} {family}"
                 name_map[full_name.lower()] = doc_id
                 name_map[given.lower()] = doc_id
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to build name map for %s: %s", md_file.name, e)
             continue
 
     return name_map
@@ -223,7 +227,8 @@ class MicrodataParser(Parser):
             
         try:
             soup = BeautifulSoup(content, "html.parser")
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to parse HTML: %s", e)
             return
 
         def process_scope(elem: Tag, parent_subject: Any = None, incoming_predicate: Any = None) -> None:
@@ -307,15 +312,15 @@ def _process_md_file(graph: Graph, md_file: Path, context: WikiConfig) -> None:
 
     try:
         graph.parse(data=content, format="microdata")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to parse microdata in %s: %s", md_file.name, e)
 
     turtle_blocks = re.findall(r"```turtle\s*([\s\S]*?)```", content)
     for block in turtle_blocks:
         try:
             graph.parse(data=block.strip(), format="turtle")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to parse turtle block in %s: %s", md_file.name, e)
 
 
 def load_graph(context: WikiConfig, infer: bool = True) -> Graph:
@@ -327,23 +332,23 @@ def load_graph(context: WikiConfig, infer: bool = True) -> Graph:
         for md_file in context.wiki_dir.glob("*.md"):
             try:
                 _process_md_file(graph, md_file, context)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to process %s: %s", md_file.name, e)
 
     if context.raw_dir.exists():
         for md_file in context.raw_dir.glob("*.md"):
             try:
                 _process_md_file(graph, md_file, context)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to process raw file %s: %s", md_file.name, e)
 
     for import_dir in context.import_dirs:
         if import_dir.exists():
             for ttl_file in sorted(import_dir.glob("*.ttl")):
                 try:
                     graph.parse(ttl_file, format="turtle")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to parse turtle file %s: %s", ttl_file.name, e)
 
     resolve_blank_nodes(graph, context.wiki_dir, context)
 

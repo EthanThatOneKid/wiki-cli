@@ -394,5 +394,45 @@ Raw Body Text.
             self.assertTrue((raw_agent_uri, RDF.type, config.context.namespaces["schema"]["Person"]) in g)
 
 
+    def test_load_graph_logs_warnings_on_bad_files(self) -> None:
+        """Test that load_graph emits warnings for unparseable content instead of silent pass."""
+        import logging
+        from wiki_cli.graph import logger as graph_logger
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            wiki = root / "wiki"
+            imports = root / "imports"
+            wiki.mkdir()
+            imports.mkdir()
+
+            # Valid wiki file
+            valid_md = wiki / "good.md"
+            valid_md.write_text("""---
+"@type": WebPage
+name: Good Page
+---
+""", encoding="utf-8")
+
+            # Invalid .ttl file in import dirs — triggers warning in import loop
+            bad_ttl = imports / "broken.ttl"
+            bad_ttl.write_text("UNPARSABLE GARBAGE", encoding="utf-8")
+
+            config = WikiConfig(wiki_dir=wiki, import_dirs=[imports])
+
+            with self.assertLogs(graph_logger, level="WARNING") as log_cm:
+                g = load_graph(config, infer=False)
+
+            # Should have logged a warning about the broken.ttl file
+            warning_messages = [r.getMessage() for r in log_cm.records]
+            self.assertTrue(
+                any("broken.ttl" in msg for msg in warning_messages),
+                f"No warning about broken.ttl found in: {warning_messages}"
+            )
+
+            # Graph should still be loadable with valid content
+            self.assertGreater(len(g), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
